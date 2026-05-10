@@ -18,8 +18,8 @@ class AStar {
 
         while (openSet.length > 0) {
             let current = openSet.reduce((min, node) => {
-                const score1 = fScore.get(`${node.x},${node.y}`) || Infinity;
-                const score2 = fScore.get(`${min.x},${min.y}`) || Infinity;
+                const score1 = fScore.has(`${node.x},${node.y}`) ? fScore.get(`${node.x},${node.y}`) : Infinity;
+                const score2 = fScore.has(`${min.x},${min.y}`) ? fScore.get(`${min.x},${min.y}`) : Infinity;
                 return score1 < score2 ? node : min;
             }, openSet[0]);
 
@@ -34,9 +34,9 @@ class AStar {
             openSet.splice(openSet.indexOf(current), 1);
 
             for (const neighbor of this.getNeighbors(gameMap, current)) {
-                const tentativeGScore = (gScore.get(`${current.x},${current.y}`) || Infinity) + 1;
+                const tentativeGScore = (gScore.has(`${current.x},${current.y}`) ? gScore.get(`${current.x},${current.y}`) : Infinity) + 1;
 
-                if (tentativeGScore < (gScore.get(`${neighbor.x},${neighbor.y}`) || Infinity)) {
+                if (tentativeGScore < (gScore.has(`${neighbor.x},${neighbor.y}`) ? gScore.get(`${neighbor.x},${neighbor.y}`) : Infinity)) {
                     cameFrom.set(`${neighbor.x},${neighbor.y}`, current);
                     gScore.set(`${neighbor.x},${neighbor.y}`, tentativeGScore);
                     fScore.set(`${neighbor.x},${neighbor.y}`, tentativeGScore + this.heuristic(neighbor, goal));

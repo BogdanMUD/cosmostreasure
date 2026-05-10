@@ -91,9 +91,10 @@ function updateUI() {
 }
 
 engine.canvas.addEventListener('mousedown', (e) => {
+    // Need to explicitly reference TILE_SIZE from map.js if not imported, but it's global
     const worldPos = engine.screenToWorld(e.clientX, e.clientY);
-    const tileX = Math.floor(worldPos.x / TILE_SIZE);
-    const tileY = Math.floor(worldPos.y / TILE_SIZE);
+    const tileX = Math.floor(worldPos.x / 32); // Use literal or global TILE_SIZE
+    const tileY = Math.floor(worldPos.y / 32);
 
     if (e.button === 2) { // Right click - Move
         hideContextMenu();

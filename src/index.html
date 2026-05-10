@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Farm</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="ui-layer">
+            <div id="top-bar">
+                <div id="resources">
+                    <span title="Leader Inventory">🎒 <span id="res-inv">0</span>/10</span>
+                    <span title="Storage Wood">🪵 <span id="res-wood">0</span></span>
+                </div>
+                <div id="controls">
+                    <button id="btn-save">Save</button>
+                    <button id="btn-load">Load</button>
+                    <span id="save-status"></span>
+                </div>
+            </div>
+
+            <div id="context-menu" class="hidden">
+                <!-- Action buttons will be injected here -->
+            </div>
+
+            <div id="win-screen" class="hidden">
+                <h1>🚀 Rocket Launched! 🚀</h1>
+                <p>Congratulations! You have successfully built the rocket and completed the first phase!</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="engine.js"></script>
+    <script src="map.js"></script>
+    <script src="pathfinding.js"></script>
+    <script src="entities.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+}
+
+body {
+    background-color: #222;
+    color: white;
+    font-family: sans-serif;
+    overflow: hidden; /* Prevent scrolling */
+}
+
+#game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+}
+
+#gameCanvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+#ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* Let clicks pass through to canvas by default */
+}
+
+#top-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    padding: 10px;
+    display: flex;
+    justify-content: space-between;
+    pointer-events: auto;
+}
+
+#resources span {
+    margin-right: 20px;
+    font-size: 1.2rem;
+}
+
+#controls button {
+    padding: 5px 10px;
+    margin-left: 10px;
+    cursor: pointer;
+    background: #444;
+    color: white;
+    border: 1px solid #666;
+    border-radius: 4px;
+}
+
+#controls button:hover {
+    background: #666;
+}
+
+#save-status {
+    margin-left: 10px;
+    font-size: 0.9rem;
+    color: #aaa;
+}
+
+#context-menu {
+    position: absolute;
+    background-color: #333;
+    border: 2px solid #555;
+    border-radius: 5px;
+    padding: 5px;
+    pointer-events: auto;
+    z-index: 10;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+}
+
+#context-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 2px;
+    background: #444;
+    color: white;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+}
+
+#context-menu button:hover {
+    background: #666;
+}
+
+.hidden {
+    display: none !important;
+}
+
+#win-screen {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.9);
+    padding: 40px;
+    border-radius: 10px;
+    text-align: center;
+    border: 2px solid gold;
+    pointer-events: auto;
+}

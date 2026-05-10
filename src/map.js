@@ -13,7 +13,11 @@ class GameMap {
         this.trees = new Map(); // "x,y" => state
         this.buildings = new Map(); // "x,y" => type
         this.storageWood = 0;
+        this.storageRaw = 0;
+        this.maxStorageWood = 30;
         this.hasStorage = false;
+        this.roads = new Set();
+        this.roadAnimProgress = new Map(); // "x,y" -> progress 0 to 1
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
                 // Simple generation: mostly grass/plains (0), some water (1) at edges
@@ -38,10 +42,19 @@ class GameMap {
 
     isWalkable(x, y) {
         if (this.buildings.has(`${x},${y}`)) return false;
+        const tree = this.trees.get(`${x},${y}`);
+        if (tree && tree.state === 'sapling') return false;
         return this.getTile(x, y) === 0; // Only grass is walkable for now
     }
 
     update(dt) {
+        // Handle road animations
+        for (const [key, prog] of this.roadAnimProgress.entries()) {
+            if (prog < 1) {
+                this.roadAnimProgress.set(key, Math.min(1, prog + dt * 2));
+            }
+        }
+
         // Handle tree growth
         for (const [key, tree] of this.trees.entries()) {
             if (tree.state === 'sapling') {
@@ -63,9 +76,9 @@ class GameMap {
                     }
 
                     bld.timer += dt;
-                    if (bld.timer >= 5) { // Generates wood every 5 seconds
+                    if (bld.timer >= 10) { // Generates raw material every 10 seconds
                         bld.timer = 0;
-                        this.storageWood += 1;
+                        bldData.rawReady = true; // Flag for UI harvest
                         if (typeof updateUI === 'function') updateUI();
                     }
                 }

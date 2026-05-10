@@ -28,9 +28,12 @@ function saveGame() {
             buildings: Array.from(gameMap.buildings.entries()),
             trees: Array.from(gameMap.trees.entries()),
             storageWood: gameMap.storageWood,
+            storageRaw: gameMap.storageRaw,
             hasStorage: gameMap.hasStorage,
-            storagePos: gameMap.storagePos
+            storagePos: gameMap.storagePos,
+            roads: Array.from(gameMap.roads || [])
         },
+        currentStage: currentStage,
         npcs: npcs.map(n => ({
             x: n.x, y: n.y,
             profession: n.profession,
@@ -58,8 +61,11 @@ function loadGame() {
             gameMap.buildings = new Map(data.map.buildings);
             gameMap.trees = new Map(data.map.trees);
             gameMap.storageWood = data.map.storageWood;
+            gameMap.storageRaw = data.map.storageRaw || 0;
             gameMap.hasStorage = data.map.hasStorage;
             gameMap.storagePos = data.map.storagePos;
+            gameMap.roads = new Set(data.map.roads || []);
+            if (data.currentStage) currentStage = data.currentStage;
 
             npcs.length = 0; // Clear existing
             for (const n of data.npcs) {
@@ -103,10 +109,109 @@ document.getElementById('btn-load-main').addEventListener('click', () => {
 // Auto-save every 60 seconds
 setInterval(saveGame, 60000);
 
+let currentStage = 1;
 function updateUI() {
-    document.getElementById('res-inv').textContent = leader.inventory.wood;
-    document.getElementById('res-wood').textContent = gameMap.storageWood;
+    const invTotal = (leader.inventory.wood || 0) + (leader.inventory.raw || 0);
+    document.getElementById('res-inv-wood').textContent = leader.inventory.wood || 0;
+    document.getElementById('res-inv-raw').textContent = leader.inventory.raw || 0;
+    document.getElementById('res-inv-total').textContent = invTotal;
+
+    document.getElementById('res-wood').textContent = gameMap.storageWood || 0;
+    document.getElementById('res-raw').textContent = gameMap.storageRaw || 0;
+
+    const woodSpan = document.getElementById('res-wood');
+    if (gameMap.storageWood >= gameMap.maxStorageWood) {
+        woodSpan.classList.add('pulsate-text');
+    } else {
+        woodSpan.classList.remove('pulsate-text');
+    }
+
+    // Check Stages
+    if (currentStage === 1 && gameMap.storageRaw >= 5) {
+        currentStage = 2;
+        showStagePopup("Stage 2: Raw Material Unlocked!");
+    } else if (currentStage === 2 && Array.from(gameMap.buildings.values()).some(b => b.type === 'spaceport' || b === 'spaceport')) {
+        currentStage = 3;
+        showStagePopup("Stage 3: Rocket Building Unlocked!");
+    }
+
+    let stageText = "Stage 1: Wood";
+    if (currentStage === 2) stageText = "Stage 2: Raw Material";
+    if (currentStage === 3) stageText = "Stage 3: Rocket";
+    document.getElementById('current-stage').textContent = stageText;
+
+    updateBuildMenu();
 }
+
+function showStagePopup(text) {
+    const popup = document.getElementById('stage-popup');
+    document.getElementById('stage-popup-text').textContent = text;
+    popup.classList.remove('hidden');
+    // Re-trigger animation
+    popup.style.animation = 'none';
+    popup.offsetHeight;
+    popup.style.animation = null;
+
+    setTimeout(() => {
+        popup.classList.add('hidden');
+    }, 4000);
+}
+
+document.getElementById('btn-main-menu').addEventListener('click', () => {
+    document.getElementById('game-container').classList.add('hidden');
+    document.getElementById('main-menu').classList.remove('hidden');
+    // Stop engine update loop? Engine doesn't have stop, but we can pause it or let it run in background
+});
+
+document.getElementById('btn-toggle-build').addEventListener('click', () => {
+    const menu = document.getElementById('build-menu');
+    menu.classList.toggle('hidden');
+    updateBuildMenu();
+});
+
+function updateBuildMenu() {
+    const buildButtons = document.querySelectorAll('.build-btn');
+
+    let houses = 0;
+    let factories = 0;
+    const processedIds = new Set();
+    for (const [key, bldData] of gameMap.buildings.entries()) {
+        if (bldData && bldData.id && !processedIds.has(bldData.id)) {
+            processedIds.add(bldData.id);
+            const t = bldData.type;
+            if (t === 'house' || t.type === 'house') houses++;
+            if (t === 'factory' || t.type === 'factory') factories++;
+        }
+    }
+
+    let maxHouses = 2, maxFactories = 2;
+    if (currentStage === 2) { maxHouses = 4; maxFactories = 4; }
+    if (currentStage === 3) { maxHouses = 6; maxFactories = 5; }
+
+    buildButtons.forEach(btn => {
+        const type = btn.getAttribute('data-type');
+        let canAfford = false;
+        let limitReached = false;
+
+        if (type === 'storage') {
+            canAfford = (leader.inventory.wood >= parseInt(btn.getAttribute('data-cost'))) && !gameMap.hasStorage;
+        } else if (type === 'spaceport') {
+            canAfford = gameMap.hasStorage && gameMap.storageWood >= parseInt(btn.getAttribute('data-cost')) && gameMap.storageRaw >= parseInt(btn.getAttribute('data-cost-raw'));
+        } else {
+            canAfford = gameMap.hasStorage && gameMap.storageWood >= parseInt(btn.getAttribute('data-cost'));
+        }
+
+        if (type === 'house' && houses >= maxHouses) limitReached = true;
+        if (type === 'factory' && factories >= maxFactories) limitReached = true;
+
+        if (!canAfford || limitReached) {
+            btn.classList.add('disabled');
+        } else {
+            btn.classList.remove('disabled');
+        }
+    });
+}
+
 
 let isDragging = false;
 let lastMousePos = { x: 0, y: 0 };
@@ -116,6 +221,27 @@ let mouseTileY = 0;
 
 engine.canvas.addEventListener('mousedown', (e) => {
     if (e.button === 0) { // Left click
+        // Check for factory raw material harvest
+        const worldPos = engine.screenToWorld(e.clientX, e.clientY);
+        const tileX = Math.floor(worldPos.x / 32);
+        const tileY = Math.floor(worldPos.y / 32);
+
+        if (gameMap.buildings.has(`${tileX},${tileY}`)) {
+            const bldData = gameMap.buildings.get(`${tileX},${tileY}`);
+            const anchorData = gameMap.buildings.get(bldData.id);
+            if (anchorData && anchorData.type && anchorData.type.type === 'factory' && anchorData.type.rawReady) {
+                // Command leader to walk and harvest
+                leader.actionQueue = { type: 'harvest_raw', anchor: bldData.id };
+                const startX = Math.round(leader.x);
+                const startY = Math.round(leader.y);
+                const path = AStar.findPath(gameMap, startX, startY, tileX, tileY, true);
+                if (path) {
+                    leader.setPath(path);
+                    return; // Prevent dragging
+                }
+            }
+        }
+
         if (currentBuildMode) {
             // Place building if valid
             let canBuild = true;
@@ -160,7 +286,21 @@ engine.canvas.addEventListener('mousedown', (e) => {
 
     if (e.button === 2) { // Right click - Context Menu / Movement
         hideContextMenu();
-        if (gameMap.isWalkable(tileX, tileY) || gameMap.buildings.has(`${tileX},${tileY}`)) {
+
+        const isWalkableEmpty = gameMap.isWalkable(tileX, tileY) && !gameMap.trees.has(`${tileX},${tileY}`);
+        const hasTree = gameMap.trees.has(`${tileX},${tileY}`);
+        const hasBuilding = gameMap.buildings.has(`${tileX},${tileY}`);
+
+        if (isWalkableEmpty && !hasBuilding) {
+            // Default walk command
+            const startX = Math.round(leader.x);
+            const startY = Math.round(leader.y);
+            const path = AStar.findPath(gameMap, startX, startY, tileX, tileY);
+            if (path) leader.setPath(path);
+            return;
+        }
+
+        if (hasTree || hasBuilding) {
             menuTarget = { x: tileX, y: tileY };
 
             const tree = gameMap.trees.get(`${tileX},${tileY}`);
@@ -176,18 +316,21 @@ engine.canvas.addEventListener('mousedown', (e) => {
                     if (path) leader.setPath(path);
                 };
                 contextMenu.appendChild(btnChop);
-            } else if (!gameMap.buildings.has(`${tileX},${tileY}`)) {
-                const btnWalk = document.createElement('button');
-                btnWalk.textContent = 'Walk Here';
-                btnWalk.onclick = () => {
+            } else if (tree && tree.state === 'sapling') {
+                const btnUproot = document.createElement('button');
+                btnUproot.textContent = 'Uproot Sapling';
+                btnUproot.onclick = () => {
                     hideContextMenu();
+                    leader.actionQueue = { type: 'uproot', x: tileX, y: tileY };
                     const startX = Math.round(leader.x);
                     const startY = Math.round(leader.y);
-                    const path = AStar.findPath(gameMap, startX, startY, tileX, tileY);
+                    const path = AStar.findPath(gameMap, startX, startY, tileX, tileY, true);
                     if (path) leader.setPath(path);
                 };
-                contextMenu.appendChild(btnWalk);
-            } else if (gameMap.buildings.has(`${tileX},${tileY}`)) {
+                contextMenu.appendChild(btnUproot);
+            }
+
+            if (hasBuilding) {
                 const bldData = gameMap.buildings.get(`${tileX},${tileY}`);
 
                 const btnDestroy = document.createElement('button');
@@ -195,11 +338,20 @@ engine.canvas.addEventListener('mousedown', (e) => {
                 btnDestroy.style.color = '#ff6b6b';
                 btnDestroy.onclick = () => {
                     hideContextMenu();
-                    leader.actionQueue = { type: 'destroy_building', x: tileX, y: tileY, anchor: bldData.id || `${tileX},${tileY}` };
-                    const startX = Math.round(leader.x);
-                    const startY = Math.round(leader.y);
-                    const path = AStar.findPath(gameMap, startX, startY, tileX, tileY, true);
-                    if (path) leader.setPath(path);
+                    let proceed = true;
+                    let bType = bldData;
+                    if (typeof bldData === 'object') bType = bldData.type;
+
+                    if (bType === 'storage' || (typeof bType === 'object' && bType.type === 'storage')) {
+                        proceed = confirm("Warning: Destroying the storage will lose all stored resources. Are you sure?");
+                    }
+                    if (proceed) {
+                        leader.actionQueue = { type: 'destroy_building', x: tileX, y: tileY, anchor: bldData.id || `${tileX},${tileY}` };
+                        const startX = Math.round(leader.x);
+                        const startY = Math.round(leader.y);
+                        const path = AStar.findPath(gameMap, startX, startY, tileX, tileY, true);
+                        if (path) leader.setPath(path);
+                    }
                 };
                 contextMenu.appendChild(btnDestroy);
 
@@ -263,6 +415,18 @@ engine.canvas.addEventListener('mouseleave', (e) => {
     isDragging = false;
 });
 
+engine.canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const zoomAmount = 0.1;
+    if (e.deltaY < 0) {
+        engine.camera.zoom += zoomAmount;
+    } else {
+        engine.camera.zoom -= zoomAmount;
+    }
+    // Clamp zoom
+    engine.camera.zoom = Math.max(0.3, Math.min(engine.camera.zoom, 3.0));
+}, { passive: false });
+
 function update(dt) {
     gameMap.update(dt);
     leader.update(dt);
@@ -319,16 +483,7 @@ buildButtons.forEach(btn => {
         const width = parseInt(btn.getAttribute('data-width'));
         const height = parseInt(btn.getAttribute('data-height'));
 
-        // Check cost
-        let canAfford = false;
-        if (type === 'storage') {
-            canAfford = leader.inventory.wood >= cost;
-        } else {
-            canAfford = gameMap.hasStorage && gameMap.storageWood >= cost;
-        }
-
-        if (!canAfford) {
-            alert('Not enough wood!');
+        if (btn.classList.contains('disabled')) {
             return;
         }
 
@@ -345,3 +500,53 @@ cancelBuildBtn.addEventListener('click', () => {
     buildButtons.forEach(b => b.classList.remove('active'));
     cancelBuildBtn.classList.add('hidden');
 });
+
+function generateRoads(startX, startY) {
+    const bldCenters = [];
+    const processedIds = new Set();
+    for (const [key, bldData] of gameMap.buildings.entries()) {
+        if (bldData && bldData.id && !processedIds.has(bldData.id)) {
+            processedIds.add(bldData.id);
+            const w = bldData.width || 1;
+            const h = bldData.height || 1;
+            const [bx, by] = bldData.id.split(',').map(Number);
+            bldCenters.push({ x: bx + Math.floor(w/2), y: by + Math.floor(h/2) });
+        }
+    }
+
+    if (bldCenters.length < 2) return;
+
+    const recentCenter = bldCenters[bldCenters.length - 1];
+
+    for (let i = 0; i < bldCenters.length - 1; i++) {
+        const other = bldCenters[i];
+        const dist = Math.abs(recentCenter.x - other.x) + Math.abs(recentCenter.y - other.y);
+        // Connect if within 4 tiles loosely (let's say manhattan distance <= 8 for centers of big buildings)
+        if (dist <= 10) {
+            // Simple L-shape road
+            let cx = recentCenter.x;
+            let cy = recentCenter.y;
+
+            const steps = [];
+            while (cx !== other.x) {
+                steps.push({x: cx, y: cy});
+                cx += Math.sign(other.x - cx);
+            }
+            while (cy !== other.y) {
+                steps.push({x: cx, y: cy});
+                cy += Math.sign(other.y - cy);
+            }
+
+            steps.forEach((step, idx) => {
+                const key = `${step.x},${step.y}`;
+                if (!gameMap.buildings.has(key)) { // don't draw road under building
+                    gameMap.roads.add(key);
+                    // Cascade animation delay based on idx
+                    setTimeout(() => {
+                        gameMap.roadAnimProgress.set(key, 0.01);
+                    }, idx * 100);
+                }
+            });
+        }
+    }
+}

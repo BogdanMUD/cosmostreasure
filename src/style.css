@@ -200,3 +200,101 @@ body {
 #btn-cancel-build {
     background: #e74c3c !important;
 }
+
+#stage-info {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #ffd700;
+}
+
+#build-toggle-container {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    pointer-events: auto;
+}
+
+#btn-toggle-build {
+    padding: 15px 20px;
+    font-size: 1.2rem;
+    background: #4caf50;
+    color: white;
+    border: 2px solid #8bc34a;
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+    transition: background 0.3s, transform 0.1s;
+}
+
+#btn-toggle-build:active {
+    transform: scale(0.95);
+}
+
+#build-menu {
+    bottom: 80px;
+}
+
+.build-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.build-btn.disabled {
+    opacity: 0.3;
+    pointer-events: none;
+    filter: grayscale(100%);
+}
+
+#stage-popup {
+    position: absolute;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 215, 0, 0.9);
+    color: #333;
+    padding: 20px 40px;
+    border-radius: 10px;
+    border: 3px solid #fff;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+    pointer-events: none;
+    z-index: 50;
+}
+
+.popup-anim {
+    animation: popupFade 4s forwards;
+}
+
+@keyframes popupFade {
+    0% { opacity: 0; transform: translate(-50%, -20px); }
+    10% { opacity: 1; transform: translate(-50%, 0); }
+    80% { opacity: 1; transform: translate(-50%, 0); }
+    100% { opacity: 0; transform: translate(-50%, -20px); }
+}
+
+/* Make ghost visually correspond to building sizes via canvas rendering, no CSS needed for canvas */
+
+#btn-main-menu {
+    transition: background 0.3s;
+}
+#btn-main-menu:hover {
+    background: #c0392b !important;
+}
+
+#resources span {
+    display: inline-block;
+    margin-right: 15px;
+}
+
+/* Pulsating storage full */
+.pulsate-text {
+    animation: textPulse 1s infinite;
+    color: red;
+    font-weight: bold;
+}
+
+@keyframes textPulse {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.2); }
+    100% { opacity: 1; transform: scale(1); }
+}

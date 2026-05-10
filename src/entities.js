@@ -53,13 +53,21 @@ class Entity {
     }
 
     checkAutoDeposit() {
-        if (this.inventory && this.inventory.wood > 0 && this.mapRef && this.mapRef.hasStorage && this.mapRef.storagePos) {
+        if (this.inventory && (this.inventory.wood > 0 || this.inventory.raw > 0) && this.mapRef && this.mapRef.hasStorage && this.mapRef.storagePos) {
             const dx = Math.abs(this.x - this.mapRef.storagePos.x);
             const dy = Math.abs(this.y - this.mapRef.storagePos.y);
-            // If within 1.5 tiles distance, deposit wood
-            if (Math.sqrt(dx*dx + dy*dy) < 1.5) {
-                this.mapRef.storageWood += this.inventory.wood;
-                this.inventory.wood = 0;
+            // If within 2.5 tiles distance to account for 2x2 storage
+            if (Math.sqrt(dx*dx + dy*dy) < 2.5) {
+                if (this.inventory.wood > 0 && this.mapRef.storageWood < this.mapRef.maxStorageWood) {
+                    const space = this.mapRef.maxStorageWood - this.mapRef.storageWood;
+                    const dep = Math.min(space, this.inventory.wood);
+                    this.mapRef.storageWood += dep;
+                    this.inventory.wood -= dep;
+                }
+                if (this.inventory.raw > 0) {
+                    this.mapRef.storageRaw = (this.mapRef.storageRaw || 0) + this.inventory.raw;
+                    this.inventory.raw = 0;
+                }
                 if (typeof updateUI === 'function') updateUI();
             }
         }
@@ -79,7 +87,7 @@ class NPC extends Entity {
         super(x, y);
         this.mapRef = mapRef;
         this.profession = profession; // 'lumberjack' or 'agronomist' or 'idle'
-        this.inventory = { wood: 0 };
+        this.inventory = { wood: 0, raw: 0 };
         this.maxInventory = 5;
         this.speed = 3;
         this.state = 'idle';
@@ -99,6 +107,21 @@ class NPC extends Entity {
         this.timer = 1; // Think every second
 
         if (this.profession === 'lumberjack') {
+            if (!this.mapRef.claimedTrees) this.mapRef.claimedTrees = new Set();
+
+            if (this.mapRef.hasStorage && this.mapRef.storageWood >= this.mapRef.maxStorageWood) {
+                // Storage is full, wander around
+                if (Math.random() < 0.5) {
+                    const rx = Math.floor(Math.random() * this.mapRef.width);
+                    const ry = Math.floor(Math.random() * this.mapRef.height);
+                    if (this.mapRef.isWalkable(rx, ry)) {
+                        const path = AStar.findPath(this.mapRef, Math.round(this.x), Math.round(this.y), rx, ry);
+                        if (path) this.setPath(path);
+                    }
+                }
+                return;
+            }
+
             if (this.inventory.wood >= this.maxInventory) {
                 // Deposit to storage
                 if (this.mapRef.hasStorage) {
@@ -112,7 +135,7 @@ class NPC extends Entity {
                 let closestTree = null;
                 let minDist = Infinity;
                 for (const [key, tree] of this.mapRef.trees.entries()) {
-                    if (tree.state === 'grown') {
+                    if (tree.state === 'grown' && !this.mapRef.claimedTrees.has(key)) {
                         const [tx, ty] = key.split(',').map(Number);
                         const dist = Math.abs(this.x - tx) + Math.abs(this.y - ty);
                         if (dist < minDist) {
@@ -129,6 +152,7 @@ class NPC extends Entity {
                 }
 
                 if (closestTree) {
+                    this.mapRef.claimedTrees.add(`${closestTree.x},${closestTree.y}`);
                     this.setPath(closestTree.path);
                     this.targetTree = closestTree;
                 }
@@ -144,17 +168,29 @@ class NPC extends Entity {
                 const treeKey = `${this.targetTree.x},${this.targetTree.y}`;
                 const tree = this.mapRef.trees.get(treeKey);
                 if (tree && tree.state === 'grown') {
-                    this.mapRef.trees.set(treeKey, { state: 'sapling', timer: 30 });
-                    this.inventory.wood += 1;
+                    // Only chop if storage isn't full, otherwise just stand there or we wander
+                    if (!this.mapRef.hasStorage || this.mapRef.storageWood < this.mapRef.maxStorageWood) {
+                        this.mapRef.trees.set(treeKey, { state: 'sapling', timer: 30 });
+                        this.inventory.wood += 1;
+                    }
                 }
+            }
+            // Release claim
+            if (this.targetTree && this.mapRef.claimedTrees) {
+                this.mapRef.claimedTrees.delete(`${this.targetTree.x},${this.targetTree.y}`);
             }
             this.targetTree = null;
         } else if (this.profession === 'lumberjack' && this.inventory.wood > 0 && this.mapRef.hasStorage) {
             const dx = Math.abs(this.x - this.mapRef.storagePos.x);
             const dy = Math.abs(this.y - this.mapRef.storagePos.y);
             if (dx <= 1 && dy <= 1) {
-                this.mapRef.storageWood += this.inventory.wood;
-                this.inventory.wood = 0;
+                // Deposit up to max capacity
+                if (this.mapRef.storageWood < this.mapRef.maxStorageWood) {
+                    const space = this.mapRef.maxStorageWood - this.mapRef.storageWood;
+                    const depositWood = Math.min(space, this.inventory.wood);
+                    this.mapRef.storageWood += depositWood;
+                    this.inventory.wood -= depositWood;
+                }
                 updateUI();
             }
         }
@@ -174,7 +210,7 @@ class Leader extends Entity {
     constructor(x, y, mapRef) {
         super(x, y);
         this.mapRef = mapRef;
-        this.inventory = { wood: 0 };
+        this.inventory = { wood: 0, raw: 0 };
         this.maxInventory = 10;
         this.speed = 5;
         this.actionQueue = null;

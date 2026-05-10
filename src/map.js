@@ -44,7 +44,7 @@ class GameMap {
     update(dt) {
         // Handle tree growth
         for (const [key, tree] of this.trees.entries()) {
-            if (tree.state === 'growing') {
+            if (tree.state === 'sapling') {
                 tree.timer -= dt;
                 if (tree.timer <= 0) {
                     tree.state = 'grown';
@@ -53,20 +53,21 @@ class GameMap {
         }
 
         // Handle wood factories
-        for (const [key, type] of this.buildings.entries()) {
-            if (type === 'factory' || (typeof type === 'object' && type.type === 'factory')) {
-                const bld = typeof type === 'object' ? type : { type: 'factory', timer: 0 };
+        for (const [key, bldData] of this.buildings.entries()) {
+            if (bldData && bldData.id === key) { // Only process anchor tile
+                let bld = bldData.type;
+                if (bld === 'factory' || (typeof bld === 'object' && bld.type === 'factory')) {
+                    if (typeof bld === 'string') {
+                        bldData.type = { type: 'factory', timer: 0 };
+                        bld = bldData.type;
+                    }
 
-                // Initialize if string
-                if (typeof type === 'string') {
-                    this.buildings.set(key, bld);
-                }
-
-                bld.timer += dt;
-                if (bld.timer >= 5) { // Generates wood every 5 seconds
-                    bld.timer = 0;
-                    this.storageWood += 1;
-                    if (typeof updateUI === 'function') updateUI();
+                    bld.timer += dt;
+                    if (bld.timer >= 5) { // Generates wood every 5 seconds
+                        bld.timer = 0;
+                        this.storageWood += 1;
+                        if (typeof updateUI === 'function') updateUI();
+                    }
                 }
             }
         }
@@ -93,7 +94,7 @@ class GameMap {
                         ctx.beginPath();
                         ctx.arc(x * TILE_SIZE + TILE_SIZE/2, y * TILE_SIZE + TILE_SIZE/2, TILE_SIZE/2.5, 0, Math.PI * 2);
                         ctx.fill();
-                    } else if (tree.state === 'growing') {
+                    } else if (tree.state === 'sapling') {
                         ctx.fillStyle = '#8bc34a'; // light green for sapling
                         ctx.beginPath();
                         ctx.arc(x * TILE_SIZE + TILE_SIZE/2, y * TILE_SIZE + TILE_SIZE/2, TILE_SIZE/5, 0, Math.PI * 2);

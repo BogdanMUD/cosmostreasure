@@ -7,7 +7,15 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="game-container">
+    <div id="main-menu">
+        <h1 class="pulsating-title">Space Farm</h1>
+        <div class="menu-buttons">
+            <button id="btn-start-game">Start New Game</button>
+            <button id="btn-load-main">Load Game</button>
+        </div>
+    </div>
+
+    <div id="game-container" class="hidden">
         <canvas id="gameCanvas"></canvas>
 
         <div id="ui-layer">
@@ -25,6 +33,22 @@
 
             <div id="context-menu" class="hidden">
                 <!-- Action buttons will be injected here -->
+            </div>
+
+            <div id="build-menu">
+                <button class="build-btn" data-type="storage" data-cost="10" data-width="1" data-height="1">
+                    📦 Storage (10 Wood)
+                </button>
+                <button class="build-btn" data-type="house" data-cost="15" data-width="2" data-height="2">
+                    🏠 House (15 Wood)
+                </button>
+                <button class="build-btn" data-type="factory" data-cost="30" data-width="2" data-height="2">
+                    🏭 Factory (30 Wood)
+                </button>
+                <button class="build-btn" data-type="spaceport" data-cost="50" data-width="3" data-height="3">
+                    🚀 Spaceport (50 Wood)
+                </button>
+                <button id="btn-cancel-build" class="hidden">❌ Cancel</button>
             </div>
 
             <div id="win-screen" class="hidden">

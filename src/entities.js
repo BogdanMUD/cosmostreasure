@@ -133,23 +133,7 @@ class NPC extends Entity {
                     this.targetTree = closestTree;
                 }
             }
-        } else if (this.profession === 'agronomist') {
-            // Find empty spot near forest to plant
-            // Simple logic: pick random walkable tile and plant if it doesn't have a tree nearby
-            if (Math.random() < 0.2) {
-                const rx = Math.floor(Math.random() * this.mapRef.width);
-                const ry = Math.floor(Math.random() * this.mapRef.height);
-                if (this.mapRef.isWalkable(rx, ry) && !this.mapRef.trees.has(`${rx},${ry}`)) {
-                    const startX = Math.round(this.x);
-                    const startY = Math.round(this.y);
-                    const path = AStar.findPath(this.mapRef, startX, startY, rx, ry);
-                    if (path) {
-                        this.setPath(path);
-                        this.targetPlantSpot = { x: rx, y: ry };
-                    }
-                }
-            }
-        }
+
     }
 
     onReachDestination() {
@@ -160,22 +144,12 @@ class NPC extends Entity {
                 const treeKey = `${this.targetTree.x},${this.targetTree.y}`;
                 const tree = this.mapRef.trees.get(treeKey);
                 if (tree && tree.state === 'grown') {
-                    this.mapRef.trees.set(treeKey, { state: 'growing', timer: 10 });
+                    this.mapRef.trees.set(treeKey, { state: 'sapling', timer: 30 });
                     this.inventory.wood += 1;
                 }
             }
             this.targetTree = null;
-        } else if (this.profession === 'agronomist' && this.targetPlantSpot) {
-            const dx = Math.abs(this.x - this.targetPlantSpot.x);
-            const dy = Math.abs(this.y - this.targetPlantSpot.y);
-            if (dx <= 1 && dy <= 1) {
-                const spotKey = `${this.targetPlantSpot.x},${this.targetPlantSpot.y}`;
-                if (this.mapRef.isWalkable(this.targetPlantSpot.x, this.targetPlantSpot.y) && !this.mapRef.trees.has(spotKey)) {
-                     this.mapRef.trees.set(spotKey, { state: 'growing', timer: 10 });
-                }
-            }
-            this.targetPlantSpot = null;
-        }
+
     }
 
     render(ctx) {
@@ -214,7 +188,7 @@ class Leader extends Entity {
                     if (tree && tree.state === 'grown') {
                         if (this.inventory.wood < this.maxInventory) {
                             // Chop the tree
-                            this.mapRef.trees.set(treeKey, { state: 'growing', timer: 10 });
+                            this.mapRef.trees.set(treeKey, { state: 'sapling', timer: 30 });
                             this.inventory.wood += 1;
                             updateUI(); // Function from main.js
                         } else {
@@ -257,15 +231,7 @@ class Leader extends Entity {
                         }
                     }
                 }
-            } else if (action.type === 'plant') {
-                const dx = Math.abs(this.x - action.x);
-                const dy = Math.abs(this.y - action.y);
-                if (dx <= 1 && dy <= 1) {
-                    const spotKey = `${action.x},${action.y}`;
-                    if (this.mapRef.isWalkable(action.x, action.y) && !this.mapRef.trees.has(spotKey)) {
-                         this.mapRef.trees.set(spotKey, { state: 'growing', timer: 10 });
-                    }
-                }
+
             } else if (action.type === 'build_factory') {
                 const dx = Math.abs(this.x - action.x);
                 const dy = Math.abs(this.y - action.y);

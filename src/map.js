@@ -181,8 +181,55 @@ class GameMap {
         // Sort by depth
         renderables.sort((a, b) => a.depth - b.depth);
 
+        // Dynamic Shadows calculation
+        // Shadow angle changes from 07:00 (-1) to 19:00 (1). 12:00 is 0.
+        // It's accessible via the global `gameTime`.
+        let shadowAngleX = 0;
+        let shadowLength = 0;
+        let drawShadows = false;
+        if (typeof gameTime !== 'undefined') {
+            if (gameTime >= 7 && gameTime <= 19) {
+                drawShadows = true;
+                // At 7:00, progress is -1. At 13:00, 0. At 19:00, 1.
+                let progress = ((gameTime - 7) / 12) * 2 - 1;
+                shadowAngleX = progress * 60; // Max 60 pixels horizontal shift
+                shadowLength = Math.abs(progress) * 0.5 + 0.2; // Min length at noon, longer at morning/evening
+            }
+        }
+
         // Render sorted objects
         for (const item of renderables) {
+            // Draw Shadows
+            if (drawShadows) {
+                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH);
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+
+                if (item.type === 'entity') {
+                    ctx.beginPath();
+                    // Elipse skewed by shadow angle
+                    ctx.ellipse(screenPos.x + shadowAngleX * 0.5, screenPos.y, 8, 4 * shadowLength, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (item.type === 'tree') {
+                    ctx.beginPath();
+                    ctx.moveTo(screenPos.x, screenPos.y);
+                    ctx.lineTo(screenPos.x + shadowAngleX * 0.8, screenPos.y - 15 * shadowLength);
+                    ctx.lineTo(screenPos.x + shadowAngleX * 1.2, screenPos.y - 5 * shadowLength);
+                    ctx.fill();
+                } else if (item.type === 'building') {
+                    const endScreenPos = Engine.isoToScreen(item.x + item.w - 1, item.y + item.h - 1, tileW, tileH);
+                    const centerX = (screenPos.x + endScreenPos.x) / 2;
+                    const centerY = (screenPos.y + endScreenPos.y) / 2;
+                    const isoBottom = centerY + tileH/2;
+
+                    ctx.beginPath();
+                    ctx.moveTo(centerX - 20, isoBottom);
+                    ctx.lineTo(centerX + shadowAngleX, isoBottom - 30 * shadowLength);
+                    ctx.lineTo(centerX + 20 + shadowAngleX, isoBottom - 30 * shadowLength);
+                    ctx.lineTo(centerX + 20, isoBottom);
+                    ctx.fill();
+                }
+            }
+
             if (item.type === 'entity') {
                 item.entity.render(ctx);
             } else if (item.type === 'tree') {
@@ -226,6 +273,29 @@ class GameMap {
                     ctx.lineTo(centerX, isoBottom - 45);
                     ctx.lineTo(centerX + 24, isoBottom - 30);
                     ctx.fill();
+
+                    // Draw Zzz if night, not raining, and has sleeping NPCs
+                    const isNight = typeof gameTime !== 'undefined' && (gameTime < 7 || gameTime >= 19);
+                    const isBadWeather = typeof weatherState !== 'undefined' && weatherState === 'rain';
+                    if (isNight && !isBadWeather && typeof npcs !== 'undefined') {
+                        // Check if any npc is sleeping at this house
+                        let hasSleeper = false;
+                        for (let npc of npcs) {
+                            if (npc.isSleeping && npc.homePos.x === item.x && npc.homePos.y === item.y) {
+                                hasSleeper = true;
+                                break;
+                            }
+                        }
+
+                        if (hasSleeper) {
+                            const time = Date.now() / 500;
+                            const bounce = Math.abs(Math.sin(time)) * 5;
+                            ctx.fillStyle = 'white';
+                            ctx.font = 'bold 16px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('Zzz', centerX, isoBottom - 50 - bounce);
+                        }
+                    }
                 } else if (bldType === 'factory') {
                     ctx.fillStyle = '#607d8b'; // metal color
                     ctx.fillRect(centerX - 30, isoBottom - 40, 60, 40);

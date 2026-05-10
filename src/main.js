@@ -229,6 +229,33 @@ let currentBuildMode = null; // {type, cost, width, height}
 let mouseTileX = 0;
 let mouseTileY = 0;
 
+const minimapCanvas = document.getElementById('minimapCanvas');
+if (minimapCanvas) {
+    minimapCanvas.addEventListener('mousedown', (e) => {
+        const rect = minimapCanvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        const scaleX = minimapCanvas.width / gameMap.width;
+        const scaleY = minimapCanvas.height / gameMap.height;
+
+        const targetGridX = mx / scaleX;
+        const targetGridY = my / scaleY;
+
+        // Find the center of the screen
+        const centerScreenX = engine.canvas.width / 2;
+        const centerScreenY = engine.canvas.height / 2;
+
+        // Find the screen position of the target grid point (without camera offset)
+        const targetScreenBase = Engine.isoToScreen(targetGridX, targetGridY, 64, 32);
+
+        // Target screen base (if camera x,y were 0,0) is targetScreenBase
+        // We want engine.camera.x and y to be exactly at targetScreenBase
+        engine.camera.x = targetScreenBase.x;
+        engine.camera.y = targetScreenBase.y;
+    });
+}
+
 engine.canvas.addEventListener('mousedown', (e) => {
     if (e.button === 0) { // Left click
         // Check for factory raw material harvest
@@ -437,14 +464,96 @@ engine.canvas.addEventListener('wheel', (e) => {
     engine.camera.zoom = Math.max(0.3, Math.min(engine.camera.zoom, 3.0));
 }, { passive: false });
 
+// Time and Weather System
+// 1 in-game day (24h) = 6 real minutes = 360 real seconds.
+// 1 in-game hour = 15 real seconds.
+let gameTime = 8.0; // Start at 8:00 AM
+
+// Weather System
+let weatherState = 'clear'; // 'clear', 'cloudy', 'rain'
+let weatherTimer = 10; // Time until next weather check
+let cloudOffsets = [{x: 0, y: 0}, {x: 500, y: 300}];
+let rainParticles = [];
+for(let i=0; i<100; i++) {
+    rainParticles.push({
+        x: Math.random() * 2000 - 1000,
+        y: Math.random() * 1000 - 500,
+        vy: Math.random() * 10 + 15,
+        length: Math.random() * 10 + 10
+    });
+}
+
 function update(dt) {
+    // 24 hours per 360 seconds -> dt seconds * (24 / 360) hours per real second
+    gameTime += dt * (24.0 / 360.0);
+    if (gameTime >= 24) gameTime -= 24;
+
+    // Update weather
+    weatherTimer -= dt;
+    if (weatherTimer <= 0) {
+        if (weatherState === 'clear') {
+            if (Math.random() < 0.2) {
+                weatherState = 'cloudy';
+                weatherTimer = Math.random() * 30 + 30; // 30-60s
+            } else {
+                weatherTimer = 10;
+            }
+        } else if (weatherState === 'cloudy') {
+            if (Math.random() < 0.3) {
+                weatherState = 'rain';
+                weatherTimer = Math.random() * (8 * 60 - 30) + 30; // 30s to 8m
+            } else {
+                weatherState = 'clear';
+                weatherTimer = Math.random() * 60 + 30;
+            }
+        } else if (weatherState === 'rain') {
+            weatherState = 'clear';
+            weatherTimer = Math.random() * 60 + 60;
+        }
+    }
+
+    // Move clouds
+    if (weatherState === 'cloudy' || weatherState === 'rain') {
+        for(let c of cloudOffsets) {
+            c.x += 10 * dt;
+            c.y += 5 * dt;
+            if (c.x > 2000) c.x = -1000;
+            if (c.y > 1500) c.y = -1000;
+        }
+    }
+
+    // Move rain
+    if (weatherState === 'rain') {
+        for(let p of rainParticles) {
+            p.y += p.vy * dt * 60;
+            p.x += 2 * dt * 60; // slight wind
+            if (p.y > engine.camera.y + 1000) {
+                p.y = engine.camera.y - 500;
+                p.x = engine.camera.x + Math.random() * 2000 - 1000;
+            }
+        }
+    }
+
     gameMap.update(dt);
     leader.update(dt);
     for (const npc of npcs) {
         npc.update(dt);
     }
 
-    // Camera is now manually controlled
+    updateClockUI();
+}
+
+function updateClockUI() {
+    const clockElement = document.getElementById('clock-display');
+    if (!clockElement) return;
+
+    let hours = Math.floor(gameTime);
+    let minutes = Math.floor((gameTime - hours) * 60);
+
+    let hStr = hours < 10 ? '0' + hours : hours;
+    let mStr = minutes < 10 ? '0' + minutes : minutes;
+
+    clockElement.innerText = `${hStr}:${mStr}`;
 }
 
 function render(ctx) {
@@ -485,7 +594,140 @@ function render(ctx) {
         }
         ctx.lineWidth = 1;
     }
+
+    renderAmbientLight();
+    renderMinimap();
 }
+
+function renderMinimap() {
+    const minimap = document.getElementById('minimapCanvas');
+    if (!minimap) return;
+
+    const mCtx = minimap.getContext('2d');
+    const mWidth = minimap.width;
+    const mHeight = minimap.height;
+
+    mCtx.clearRect(0, 0, mWidth, mHeight);
+
+    // Calculate scaling
+    // Map bounds in world coordinates:
+    // Since it's isometric, drawing it top-down is easier for the minimap.
+    const mapTilesW = gameMap.width;
+    const mapTilesH = gameMap.height;
+    const scaleX = mWidth / mapTilesW;
+    const scaleY = mHeight / mapTilesH;
+
+    // Draw tiles
+    for (let y = 0; y < mapTilesH; y++) {
+        for (let x = 0; x < mapTilesW; x++) {
+            const tile = gameMap.getTile(x, y);
+            if (tile === 0) mCtx.fillStyle = '#4caf50';
+            else if (tile === 1) mCtx.fillStyle = '#2196f3';
+
+            if (gameMap.roads.has(`${x},${y}`)) {
+                mCtx.fillStyle = '#9e9e9e';
+            }
+
+            mCtx.fillRect(x * scaleX, y * scaleY, scaleX, scaleY);
+
+            // Draw buildings/trees
+            if (gameMap.buildings.has(`${x},${y}`)) {
+                mCtx.fillStyle = '#607d8b';
+                mCtx.fillRect(x * scaleX, y * scaleY, scaleX, scaleY);
+            } else if (gameMap.trees.has(`${x},${y}`)) {
+                mCtx.fillStyle = '#2e7d32';
+                mCtx.fillRect(x * scaleX, y * scaleY, scaleX, scaleY);
+            }
+        }
+    }
+
+    // Draw camera bounds
+    // We need to find the bounds of the screen in isometric grid coordinates
+    // We can sample the 4 corners of the screen
+    const wTl = engine.screenToWorld(0, 0);
+    const wTr = engine.screenToWorld(engine.canvas.width, 0);
+    const wBl = engine.screenToWorld(0, engine.canvas.height);
+    const wBr = engine.screenToWorld(engine.canvas.width, engine.canvas.height);
+
+    const tl = Engine.screenToIso(wTl.x, wTl.y, 64, 32);
+    const tr = Engine.screenToIso(wTr.x, wTr.y, 64, 32);
+    const bl = Engine.screenToIso(wBl.x, wBl.y, 64, 32);
+    const br = Engine.screenToIso(wBr.x, wBr.y, 64, 32);
+
+    mCtx.strokeStyle = 'white';
+    mCtx.lineWidth = 1;
+    mCtx.beginPath();
+    mCtx.moveTo(tl.x * scaleX, tl.y * scaleY);
+    mCtx.lineTo(tr.x * scaleX, tr.y * scaleY);
+    mCtx.lineTo(br.x * scaleX, br.y * scaleY);
+    mCtx.lineTo(bl.x * scaleX, bl.y * scaleY);
+    mCtx.closePath();
+    mCtx.stroke();
+}
+
+
+function renderAmbientLight() {
+    const overlay = document.getElementById('overlay-ambient');
+    if (!overlay) return;
+
+    // Sync size with main canvas
+    if (overlay.width !== engine.canvas.width || overlay.height !== engine.canvas.height) {
+        overlay.width = engine.canvas.width;
+        overlay.height = engine.canvas.height;
+    }
+
+    const oCtx = overlay.getContext('2d');
+    oCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+    // Day is 07:00 to 19:00, night is 19:00 to 07:00.
+    // Darkness goes from 0 (day) to 0.6 (night)
+    let darkness = 0;
+
+    // Smooth transitions
+    if (gameTime > 18 && gameTime <= 20) {
+        // Sunset 18:00 to 20:00 -> darkness goes 0 to 0.6
+        darkness = ((gameTime - 18) / 2) * 0.6;
+    } else if (gameTime > 20 || gameTime <= 5) {
+        // Full night
+        darkness = 0.6;
+    } else if (gameTime > 5 && gameTime <= 7) {
+        // Sunrise 05:00 to 07:00 -> darkness goes 0.6 to 0
+        darkness = 0.6 - ((gameTime - 5) / 2) * 0.6;
+    }
+
+    if (darkness > 0) {
+        oCtx.fillStyle = `rgba(10, 10, 30, ${darkness})`;
+        oCtx.fillRect(0, 0, overlay.width, overlay.height);
+    }
+
+    // Weather Effects Render
+    if (weatherState === 'cloudy' || weatherState === 'rain') {
+        for (let c of cloudOffsets) {
+            // Transform world coordinates of cloud to screen
+            const sc = engine.worldToScreen(c.x, c.y);
+            const screenX = sc.x;
+            const screenY = sc.y;
+            const radGrad = oCtx.createRadialGradient(screenX, screenY, 50, screenX, screenY, 400);
+            radGrad.addColorStop(0, 'rgba(0, 0, 0, 0.4)');
+            radGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            oCtx.fillStyle = radGrad;
+            oCtx.fillRect(0, 0, overlay.width, overlay.height);
+        }
+    }
+
+    if (weatherState === 'rain') {
+        oCtx.strokeStyle = 'rgba(150, 200, 255, 0.5)';
+        oCtx.lineWidth = 1;
+        oCtx.beginPath();
+        for (let p of rainParticles) {
+            const sc = engine.worldToScreen(p.x, p.y);
+            oCtx.moveTo(sc.x, sc.y);
+            oCtx.lineTo(sc.x - 2, sc.y + p.length);
+        }
+        oCtx.stroke();
+    }
+}
+
 
 
 

@@ -83,7 +83,7 @@ class Entity {
 }
 
 class NPC extends Entity {
-    constructor(x, y, mapRef, profession) {
+    constructor(x, y, mapRef, profession, homePos) {
         super(x, y);
         this.mapRef = mapRef;
         this.profession = profession; // 'lumberjack' or 'agronomist' or 'idle'
@@ -92,10 +92,14 @@ class NPC extends Entity {
         this.speed = 3;
         this.state = 'idle';
         this.timer = 0;
+        this.homePos = homePos || { x, y }; // Where they sleep
+        this.isSleeping = false;
     }
 
     update(dt) {
-        super.update(dt);
+        if (!this.isSleeping) {
+            super.update(dt);
+        }
         if (this.path.length === 0) {
             this.think(dt);
         }
@@ -105,6 +109,46 @@ class NPC extends Entity {
         this.timer -= dt;
         if (this.timer > 0) return;
         this.timer = 1; // Think every second
+
+        // Weather/Night behavior
+        const isNight = gameTime < 7 || gameTime >= 19;
+        const isBadWeather = typeof weatherState !== 'undefined' && weatherState === 'rain';
+        const shouldShelter = isNight || isBadWeather;
+
+        if (shouldShelter) {
+            // Need to drop off items first
+            if (this.inventory.wood > 0 && this.mapRef.hasStorage && (this.state !== 'going_home' && this.state !== 'depositing')) {
+                const startX = Math.round(this.x);
+                const startY = Math.round(this.y);
+                const path = AStar.findPath(this.mapRef, startX, startY, this.mapRef.storagePos.x, this.mapRef.storagePos.y, true);
+                if (path) {
+                    this.setPath(path);
+                    this.state = 'depositing';
+                }
+            } else if (this.inventory.wood === 0 || !this.mapRef.hasStorage) {
+                // Go home
+                const dx = Math.abs(this.x - this.homePos.x);
+                const dy = Math.abs(this.y - this.homePos.y);
+                if (dx <= 1 && dy <= 1) {
+                    this.isSleeping = true;
+                } else if (this.state !== 'going_home') {
+                    const startX = Math.round(this.x);
+                    const startY = Math.round(this.y);
+                    const path = AStar.findPath(this.mapRef, startX, startY, this.homePos.x, this.homePos.y, true);
+                    if (path) {
+                        this.setPath(path);
+                        this.state = 'going_home';
+                    }
+                }
+            }
+            return; // Skip normal logic
+        } else {
+            // Wake up
+            if (this.isSleeping) {
+                this.isSleeping = false;
+                this.state = 'idle';
+            }
+        }
 
         if (this.profession === 'lumberjack') {
             if (!this.mapRef.claimedTrees) this.mapRef.claimedTrees = new Set();
@@ -161,6 +205,34 @@ class NPC extends Entity {
     }
 
     onReachDestination() {
+        if (this.state === 'depositing') {
+            const dx = Math.abs(this.x - this.mapRef.storagePos.x);
+            const dy = Math.abs(this.y - this.mapRef.storagePos.y);
+            if (dx <= 1 && dy <= 1) {
+                // Deposit up to max capacity
+                if (this.mapRef.storageWood < this.mapRef.maxStorageWood) {
+                    const space = this.mapRef.maxStorageWood - this.mapRef.storageWood;
+                    const depositWood = Math.min(space, this.inventory.wood);
+                    this.mapRef.storageWood += depositWood;
+                    this.inventory.wood -= depositWood;
+                }
+                updateUI();
+                const startX = Math.round(this.x);
+                const startY = Math.round(this.y);
+                const path = AStar.findPath(this.mapRef, startX, startY, this.homePos.x, this.homePos.y, true);
+                if (path) {
+                    this.setPath(path);
+                    this.state = 'going_home'; // Then go home
+                }
+            }
+        } else if (this.state === 'going_home') {
+            const dx = Math.abs(this.x - this.homePos.x);
+            const dy = Math.abs(this.y - this.homePos.y);
+            if (dx <= 1 && dy <= 1) {
+                this.isSleeping = true;
+            }
+        }
+
         if (this.profession === 'lumberjack' && this.targetTree) {
             const dx = Math.abs(this.x - this.targetTree.x);
             const dy = Math.abs(this.y - this.targetTree.y);
@@ -197,6 +269,7 @@ class NPC extends Entity {
     }
 
     render(ctx) {
+        if (this.isSleeping) return; // Don't draw if sleeping in a house
         const screenPos = Engine.isoToScreen(this.x, this.y, 64, 32);
         ctx.fillStyle = this.profession === 'lumberjack' ? '#f44336' : (this.profession === 'agronomist' ? '#8bc34a' : '#9e9e9e');
         ctx.beginPath();
@@ -242,60 +315,66 @@ class Leader extends Entity {
                         }
                     }
                 }
-            } else if (action.type === 'build_storage') {
+            } else if (action.type.startsWith('build_') && action.type !== 'build_rocket') {
                 const dx = Math.abs(this.x - action.x);
                 const dy = Math.abs(this.y - action.y);
                 if (dx <= 1 && dy <= 1) {
-                    if (this.inventory.wood >= 10 && !this.mapRef.hasStorage) {
+                    let cost = 0;
+                    let canAfford = false;
+                    let typeRaw = action.type.replace('build_', '');
+
+                    if (typeRaw === 'storage' && this.inventory.wood >= 10 && !this.mapRef.hasStorage) {
                         this.inventory.wood -= 10;
-                        this.mapRef.buildings.set(`${action.x},${action.y}`, 'storage');
+                        canAfford = true;
                         this.mapRef.hasStorage = true;
                         this.mapRef.storagePos = { x: action.x, y: action.y };
-                        updateUI();
-                    }
-                }
-            } else if (action.type === 'build_house') {
-                const dx = Math.abs(this.x - action.x);
-                const dy = Math.abs(this.y - action.y);
-                if (dx <= 1 && dy <= 1) {
-                    if (this.mapRef.storageWood >= 15) {
+                    } else if (typeRaw === 'house' && this.mapRef.storageWood >= 15) {
                         this.mapRef.storageWood -= 15;
-                        this.mapRef.buildings.set(`${action.x},${action.y}`, 'house');
-                        updateUI();
+                        canAfford = true;
+                    } else if (typeRaw === 'factory' && this.mapRef.storageWood >= 30) {
+                        this.mapRef.storageWood -= 30;
+                        canAfford = true;
+                    } else if (typeRaw === 'spaceport' && this.mapRef.storageWood >= 50 && this.inventory.raw >= 10) {
+                        this.mapRef.storageWood -= 50;
+                        this.inventory.raw -= 10;
+                        canAfford = true;
+                    } else if (typeRaw === 'spaceport' && this.mapRef.storageWood >= 50 && typeof this.inventory.raw === 'undefined') {
+                        // fallback if raw cost isn't enforced strictly here
+                        this.mapRef.storageWood -= 50;
+                        canAfford = true;
+                    }
 
-                        // Spawn 2 NPCs
-                        for (let i = 0; i < 2; i++) {
-                            // Assign profession based on leader's learned skills
-                            let profession = 'lumberjack';
-                            if (this.learnedSkills.has('plant') && Math.random() < 0.5) {
-                                profession = 'agronomist';
-                            }
-                            // Call a global function or event to add NPC. We'll assume a global `npcs` array exists in main.js
-                            if (typeof npcs !== 'undefined') {
-                                npcs.push(new NPC(action.x, action.y, this.mapRef, profession));
+                    if (canAfford) {
+                        const anchorId = `${action.x},${action.y}`;
+                        const bldObj = {
+                            id: anchorId,
+                            type: typeRaw === 'factory' ? { type: 'factory', timer: 0 } : typeRaw,
+                            width: action.width || 1,
+                            height: action.height || 1
+                        };
+
+                        // Reserve all tiles
+                        for (let wy = 0; wy < bldObj.height; wy++) {
+                            for (let wx = 0; wx < bldObj.width; wx++) {
+                                this.mapRef.buildings.set(`${action.x + wx},${action.y + wy}`, bldObj);
                             }
                         }
-                    }
-                }
+                        updateUI();
 
-            } else if (action.type === 'build_factory') {
-                const dx = Math.abs(this.x - action.x);
-                const dy = Math.abs(this.y - action.y);
-                if (dx <= 1 && dy <= 1) {
-                    if (this.mapRef.storageWood >= 30) {
-                        this.mapRef.storageWood -= 30;
-                        this.mapRef.buildings.set(`${action.x},${action.y}`, { type: 'factory', timer: 0 });
-                        updateUI();
-                    }
-                }
-            } else if (action.type === 'build_spaceport') {
-                const dx = Math.abs(this.x - action.x);
-                const dy = Math.abs(this.y - action.y);
-                if (dx <= 1 && dy <= 1) {
-                    if (this.mapRef.storageWood >= 50) {
-                        this.mapRef.storageWood -= 50;
-                        this.mapRef.buildings.set(`${action.x},${action.y}`, 'spaceport');
-                        updateUI();
+                        if (typeRaw === 'house') {
+                            // Spawn 2 NPCs
+                            for (let i = 0; i < 2; i++) {
+                                let profession = 'lumberjack';
+                                if (this.learnedSkills.has('plant') && Math.random() < 0.5) {
+                                    profession = 'agronomist';
+                                }
+                                if (typeof npcs !== 'undefined') {
+                                    npcs.push(new NPC(action.x, action.y, this.mapRef, profession, { x: action.x, y: action.y }));
+                                }
+                            }
+                        }
+
+                        if (typeof generateRoads === 'function') generateRoads();
                     }
                 }
             } else if (action.type === 'build_rocket') {

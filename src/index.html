@@ -17,6 +17,7 @@
 
     <div id="game-container" class="hidden">
         <canvas id="gameCanvas"></canvas>
+        <canvas id="overlay-ambient"></canvas>
 
         <div id="ui-layer">
             <div id="top-bar">
@@ -26,6 +27,9 @@
                 </div>
                 <div id="stage-info">
                     <span id="current-stage">Stage 1: Wood</span>
+                </div>
+                <div id="time-weather" style="margin-left: 20px; font-weight: bold;">
+                    🕰️ <span id="clock-display">08:00</span>
                 </div>
                 <div id="controls">
                     <button id="btn-save">Save</button>
@@ -37,6 +41,11 @@
 
             <div id="stage-popup" class="hidden popup-anim">
                 <h2 id="stage-popup-text">Stage Unlocked!</h2>
+            </div>
+
+            <!-- Minimap -->
+            <div id="minimap-container">
+                <canvas id="minimapCanvas" width="150" height="150"></canvas>
             </div>
 
             <div id="build-toggle-container">

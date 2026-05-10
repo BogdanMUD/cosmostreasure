@@ -12,6 +12,16 @@ engine.camera.y = leader.y * TILE_SIZE;
 const contextMenu = document.getElementById('context-menu');
 let menuTarget = null; // Stores {x, y} of the tile clicked
 
+function getGridFromEvent(e) {
+    const worldPos = engine.screenToWorld(e.clientX, e.clientY);
+    const isoPos = Engine.screenToIso(worldPos.x, worldPos.y, 64, 32);
+    return {
+        x: Math.round(isoPos.x),
+        y: Math.round(isoPos.y)
+    };
+}
+
+
 function hideContextMenu() {
     contextMenu.classList.add('hidden');
     contextMenu.innerHTML = '';
@@ -222,9 +232,9 @@ let mouseTileY = 0;
 engine.canvas.addEventListener('mousedown', (e) => {
     if (e.button === 0) { // Left click
         // Check for factory raw material harvest
-        const worldPos = engine.screenToWorld(e.clientX, e.clientY);
-        const tileX = Math.floor(worldPos.x / 32);
-        const tileY = Math.floor(worldPos.y / 32);
+        const gridPos = getGridFromEvent(e);
+        const tileX = gridPos.x;
+        const tileY = gridPos.y;
 
         if (gameMap.buildings.has(`${tileX},${tileY}`)) {
             const bldData = gameMap.buildings.get(`${tileX},${tileY}`);
@@ -280,9 +290,9 @@ engine.canvas.addEventListener('mousedown', (e) => {
         }
     }
 
-    const worldPos = engine.screenToWorld(e.clientX, e.clientY);
-    const tileX = Math.floor(worldPos.x / 32);
-    const tileY = Math.floor(worldPos.y / 32);
+    const gridPos = getGridFromEvent(e);
+    const tileX = gridPos.x;
+    const tileY = gridPos.y;
 
     if (e.button === 2) { // Right click - Context Menu / Movement
         hideContextMenu();
@@ -391,9 +401,9 @@ engine.canvas.addEventListener('mousedown', (e) => {
 });
 
 engine.canvas.addEventListener('mousemove', (e) => {
-    const worldPos = engine.screenToWorld(e.clientX, e.clientY);
-    mouseTileX = Math.floor(worldPos.x / 32);
-    mouseTileY = Math.floor(worldPos.y / 32);
+    const gridPos = getGridFromEvent(e);
+    mouseTileX = gridPos.x;
+    mouseTileY = gridPos.y;
 
     if (isDragging) {
         const dx = e.clientX - lastMousePos.x;
@@ -438,16 +448,11 @@ function update(dt) {
 }
 
 function render(ctx) {
-    gameMap.render(ctx);
-    leader.render(ctx);
-    for (const npc of npcs) {
-        npc.render(ctx);
-    }
+    // Pass entities to map so it can z-sort them with buildings/trees
+    gameMap.render(ctx, [leader, ...npcs]);
 
     // Render ghost building
     if (currentBuildMode) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-
         let canBuild = true;
         for(let wy=0; wy < currentBuildMode.height; wy++) {
             for(let wx=0; wx < currentBuildMode.width; wx++) {
@@ -457,16 +462,28 @@ function render(ctx) {
             }
         }
 
-        if (!canBuild) {
-            ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
-        }
-
-        ctx.fillRect(mouseTileX * 32, mouseTileY * 32, currentBuildMode.width * 32, currentBuildMode.height * 32);
-
-        // Outline
+        ctx.fillStyle = canBuild ? 'rgba(0, 255, 0, 0.4)' : 'rgba(255, 0, 0, 0.4)';
         ctx.strokeStyle = canBuild ? '#0f0' : '#f00';
         ctx.lineWidth = 2;
-        ctx.strokeRect(mouseTileX * 32, mouseTileY * 32, currentBuildMode.width * 32, currentBuildMode.height * 32);
+
+        const tileW = 64;
+        const tileH = 32;
+
+        for(let wy=0; wy < currentBuildMode.height; wy++) {
+            for(let wx=0; wx < currentBuildMode.width; wx++) {
+                const screenPos = Engine.isoToScreen(mouseTileX + wx, mouseTileY + wy, tileW, tileH);
+
+                ctx.beginPath();
+                ctx.moveTo(screenPos.x, screenPos.y - tileH / 2);
+                ctx.lineTo(screenPos.x + tileW / 2, screenPos.y);
+                ctx.lineTo(screenPos.x, screenPos.y + tileH / 2);
+                ctx.lineTo(screenPos.x - tileW / 2, screenPos.y);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            }
+        }
+        ctx.lineWidth = 1;
     }
 }
 

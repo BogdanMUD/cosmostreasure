@@ -197,9 +197,11 @@ class NPC extends Entity {
     }
 
     render(ctx) {
+        const screenPos = Engine.isoToScreen(this.x, this.y, 64, 32);
         ctx.fillStyle = this.profession === 'lumberjack' ? '#f44336' : (this.profession === 'agronomist' ? '#8bc34a' : '#9e9e9e');
         ctx.beginPath();
-        ctx.arc(this.x * TILE_SIZE + TILE_SIZE/2, this.y * TILE_SIZE + TILE_SIZE/2, TILE_SIZE/3.5, 0, Math.PI * 2);
+        // Shift up slightly to stand on the tile
+        ctx.arc(screenPos.x, screenPos.y - 12, 10, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#000';
         ctx.stroke();
@@ -308,14 +310,59 @@ class Leader extends Entity {
                         if (typeof saveGame === 'function') saveGame();
                     }
                 }
+            } else if (action.type === 'harvest_raw') {
+                const [ax, ay] = action.anchor.split(',').map(Number);
+                const dx = Math.abs(this.x - ax);
+                const dy = Math.abs(this.y - ay);
+                // Harvest from anywhere adjacent to the multi-tile factory
+                // Assuming max distance is roughly 3 since factory is 3x3
+                if (dx <= 3 && dy <= 3) {
+                    const bldData = this.mapRef.buildings.get(action.anchor);
+                    if (bldData && bldData.type && bldData.type.type === 'factory' && bldData.type.rawReady) {
+                        if (this.inventory.raw < this.maxInventory) {
+                            bldData.type.rawReady = false;
+                            this.inventory.raw += 1;
+                            updateUI();
+                        }
+                    }
+                }
+            } else if (action.type === 'destroy_building') {
+                const [ax, ay] = action.anchor.split(',').map(Number);
+                const dx = Math.abs(this.x - ax);
+                const dy = Math.abs(this.y - ay);
+                if (dx <= 5 && dy <= 5) {
+                    const bldData = this.mapRef.buildings.get(action.anchor);
+                    if (bldData) {
+                        const w = bldData.width || 1;
+                        const h = bldData.height || 1;
+                        let bldType = bldData.type;
+                        if (typeof bldType === 'object') bldType = bldType.type;
+
+                        if (bldType === 'storage') this.mapRef.hasStorage = false;
+
+                        for (let wy = 0; wy < h; wy++) {
+                            for (let wx = 0; wx < w; wx++) {
+                                this.mapRef.buildings.delete(`${ax + wx},${ay + wy}`);
+                            }
+                        }
+                        updateUI();
+                    }
+                }
+            } else if (action.type === 'uproot') {
+                const dx = Math.abs(this.x - action.x);
+                const dy = Math.abs(this.y - action.y);
+                if (dx <= 1 && dy <= 1) {
+                    this.mapRef.trees.delete(`${action.x},${action.y}`);
+                }
             }
         }
     }
 
     render(ctx) {
+        const screenPos = Engine.isoToScreen(this.x, this.y, 64, 32);
         ctx.fillStyle = '#ff9800'; // Orange leader
         ctx.beginPath();
-        ctx.arc(this.x * TILE_SIZE + TILE_SIZE/2, this.y * TILE_SIZE + TILE_SIZE/2, TILE_SIZE/3, 0, Math.PI * 2);
+        ctx.arc(screenPos.x, screenPos.y - 15, 12, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#000';
         ctx.stroke();

@@ -1,0 +1,17 @@
+127.0.0.1 - - [10/May/2026 18:46:10] "GET /src/map.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 18:53:49] code 404, message File not found
+127.0.0.1 - - [10/May/2026 18:53:49] "GET /index.html HTTP/1.1" 404 -
+127.0.0.1 - - [10/May/2026 18:57:39] "GET /src/index.html HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 18:57:39] "GET /src/style.css HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 18:57:39] "GET /src/pathfinding.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 18:57:39] "GET /src/map.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 18:57:39] "GET /src/entities.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 18:57:39] "GET /src/main.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 18:57:39] "GET /src/engine.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 19:08:38] "GET /src/index.html HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 19:08:38] "GET /src/style.css HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 19:08:38] "GET /src/engine.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 19:08:38] "GET /src/main.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 19:08:38] "GET /src/map.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 19:08:38] "GET /src/entities.js HTTP/1.1" 200 -
+127.0.0.1 - - [10/May/2026 19:08:38] "GET /src/pathfinding.js HTTP/1.1" 200 -

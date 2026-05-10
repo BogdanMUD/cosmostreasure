@@ -1,92 +1,153 @@
-// map.js
-const TILE_SIZE = 32;
+import sys
+import re
 
-class GameMap {
-    constructor(width, height) {
-        this.width = width;
-        this.height = height;
-        this.tiles = []; // 1D array, y * width + x
-        this.initMap();
-    }
+def main():
+    filepath = 'src/map.js'
+    with open(filepath, 'r') as f:
+        content = f.read()
 
-    initMap() {
-        this.trees = new Map(); // "x,y" => state
-        this.buildings = new Map(); // "x,y" => type
-        this.storageWood = 0;
-        this.storageRaw = 0;
-        this.maxStorageWood = 30;
-        this.hasStorage = false;
-        this.roads = new Set();
-        this.roadAnimProgress = new Map(); // "x,y" -> progress 0 to 1
+    # We need to change `render(ctx)` to `render(ctx, entities = [])`
+    # and instead of drawing directly in the second loop, we collect "renderables" and sort them by `depth = x + y`
+
+    search = """    render(ctx) {
+        // Draw base tiles (grass, water, roads)
+        const tileW = 64;
+        const tileH = 32;
+
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
-                // Simple generation: mostly grass/plains (0), some water (1) at edges
-                let type = 0;
-                if (x < 2 || x > this.width - 3 || y < 2 || y > this.height - 3) {
-                    type = 1; // water
-                } else {
-                    // Randomly add trees
-                    if (Math.random() < 0.1) {
-                        this.trees.set(`${x},${y}`, { state: 'grown' });
+                const screenPos = Engine.isoToScreen(x, y, tileW, tileH);
+
+                const tile = this.getTile(x, y);
+                if (tile === 0) {
+                    ctx.fillStyle = '#4caf50'; // grass
+                } else if (tile === 1) {
+                    ctx.fillStyle = '#2196f3'; // water
+                }
+
+                if (this.roads.has(`${x},${y}`)) {
+                    ctx.fillStyle = '#9e9e9e'; // road color
+                }
+
+                // Draw rhombus
+                ctx.beginPath();
+                ctx.moveTo(screenPos.x, screenPos.y - tileH / 2); // Top
+                ctx.lineTo(screenPos.x + tileW / 2, screenPos.y); // Right
+                ctx.lineTo(screenPos.x, screenPos.y + tileH / 2); // Bottom
+                ctx.lineTo(screenPos.x - tileW / 2, screenPos.y); // Left
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+                ctx.stroke();
+            }
+        }
+
+        // We will move trees and buildings to a z-sorted pass later,
+        // but for now let's draw them in order from top-left to bottom-right to approximate depth.
+        // The loop above already goes top to bottom, left to right, which works reasonably well for isometric Z-sorting.
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                const screenPos = Engine.isoToScreen(x, y, tileW, tileH);
+
+                // Draw road animation overlay if needed
+                const roadProg = this.roadAnimProgress.get(`${x},${y}`);
+                if (roadProg !== undefined && roadProg < 1) {
+                    ctx.fillStyle = `rgba(255, 255, 0, ${1 - roadProg})`;
+                    ctx.beginPath();
+                    ctx.moveTo(screenPos.x, screenPos.y - tileH / 2);
+                    ctx.lineTo(screenPos.x + tileW / 2, screenPos.y);
+                    ctx.lineTo(screenPos.x, screenPos.y + tileH / 2);
+                    ctx.lineTo(screenPos.x - tileW / 2, screenPos.y);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+
+                // Draw tree
+                const tree = this.trees.get(`${x},${y}`);
+                if (tree) {
+                    if (tree.state === 'grown') {
+                        ctx.fillStyle = '#2e7d32'; // dark green for tree
+                        ctx.beginPath();
+                        // Anchor at the bottom center of the tile
+                        ctx.arc(screenPos.x, screenPos.y - 10, 12, 0, Math.PI * 2);
+                        ctx.fill();
+                        // Tree trunk
+                        ctx.fillStyle = '#5d4037';
+                        ctx.fillRect(screenPos.x - 2, screenPos.y - 10, 4, 10);
+                    } else if (tree.state === 'sapling') {
+                        ctx.fillStyle = '#8bc34a'; // light green for sapling
+                        ctx.beginPath();
+                        ctx.arc(screenPos.x, screenPos.y - 5, 6, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = '#5d4037';
+                        ctx.fillRect(screenPos.x - 1, screenPos.y - 5, 2, 5);
                     }
                 }
-                this.tiles.push(type);
-            }
-        }
-    }
 
-    getTile(x, y) {
-        if (x < 0 || x >= this.width || y < 0 || y >= this.height) return -1;
-        return this.tiles[y * this.width + x];
-    }
+                // Draw buildings
+                const bldData = this.buildings.get(`${x},${y}`);
+                if (bldData && bldData.id === `${x},${y}`) { // Only draw if anchor tile
+                    let bldType = bldData.type;
+                    if (typeof bldType === 'object') bldType = bldType.type;
 
-    isWalkable(x, y) {
-        if (this.buildings.has(`${x},${y}`)) return false;
-        const tree = this.trees.get(`${x},${y}`);
-        if (tree && tree.state === 'sapling') return false;
-        return this.getTile(x, y) === 0; // Only grass is walkable for now
-    }
+                    const w = bldData.width || 1;
+                    const h = bldData.height || 1;
 
-    update(dt) {
-        // Handle road animations
-        for (const [key, prog] of this.roadAnimProgress.entries()) {
-            if (prog < 1) {
-                this.roadAnimProgress.set(key, Math.min(1, prog + dt * 2));
-            }
-        }
+                    // Approximate center of the building in screen coordinates
+                    const endScreenPos = Engine.isoToScreen(x + w - 1, y + h - 1, tileW, tileH);
+                    const centerX = (screenPos.x + endScreenPos.x) / 2;
+                    const centerY = (screenPos.y + endScreenPos.y) / 2;
 
-        // Handle tree growth
-        for (const [key, tree] of this.trees.entries()) {
-            if (tree.state === 'sapling') {
-                tree.timer -= dt;
-                if (tree.timer <= 0) {
-                    tree.state = 'grown';
+                    const drawWidth = w * (tileW / 2) + h * (tileW / 2); // approximate
+                    const drawHeight = drawWidth * 0.7; // approximate
+                    const isoBottom = centerY + tileH/2;
+
+                    if (bldType === 'storage') {
+                        ctx.fillStyle = '#795548'; // brown box
+                        ctx.fillRect(centerX - 12, isoBottom - 24, 24, 24);
+                        ctx.fillStyle = '#ffc107'; // gold lock/accent
+                        ctx.fillRect(centerX - 4, isoBottom - 12, 8, 8);
+                    } else if (bldType === 'house') {
+                        ctx.fillStyle = '#8d6e63'; // lighter brown
+                        ctx.fillRect(centerX - 20, isoBottom - 30, 40, 30);
+                        ctx.fillStyle = '#d84315'; // red roof
+                        ctx.beginPath();
+                        ctx.moveTo(centerX - 24, isoBottom - 30);
+                        ctx.lineTo(centerX, isoBottom - 45);
+                        ctx.lineTo(centerX + 24, isoBottom - 30);
+                        ctx.fill();
+                    } else if (bldType === 'factory') {
+                        ctx.fillStyle = '#607d8b'; // metal color
+                        ctx.fillRect(centerX - 30, isoBottom - 40, 60, 40);
+                        ctx.fillStyle = '#e0e0e0';
+                        ctx.fillRect(centerX - 10, isoBottom - 55, 10, 15); // smokestack
+                    } else if (bldType === 'spaceport') {
+                        ctx.fillStyle = '#37474f';
+                        ctx.beginPath();
+                        ctx.arc(centerX, isoBottom - 20, 30, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.strokeStyle = '#00bcd4';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                        ctx.lineWidth = 1;
+
+                        // draw rocket
+                        ctx.fillStyle = '#fff';
+                        ctx.fillRect(centerX - 5, isoBottom - 50, 10, 30);
+                        ctx.fillStyle = '#f44336';
+                        ctx.beginPath();
+                        ctx.moveTo(centerX - 5, isoBottom - 50);
+                        ctx.lineTo(centerX, isoBottom - 65);
+                        ctx.lineTo(centerX + 5, isoBottom - 50);
+                        ctx.fill();
+                    }
                 }
             }
         }
+    }"""
 
-        // Handle wood factories
-        for (const [key, bldData] of this.buildings.entries()) {
-            if (bldData && bldData.id === key) { // Only process anchor tile
-                let bld = bldData.type;
-                if (bld === 'factory' || (typeof bld === 'object' && bld.type === 'factory')) {
-                    if (typeof bld === 'string') {
-                        bldData.type = { type: 'factory', timer: 0 };
-                        bld = bldData.type;
-                    }
-
-                    bld.timer += dt;
-                    if (bld.timer >= 10) { // Generates raw material every 10 seconds
-                        bld.timer = 0;
-                        bldData.rawReady = true; // Flag for UI harvest
-                        if (typeof updateUI === 'function') updateUI();
-                    }
-                }
-            }
-        }
-    }
-
-    render(ctx, entities = []) {
+    replace = """    render(ctx, entities = []) {
         // Draw base tiles (grass, water, roads)
         const tileW = 64;
         const tileH = 32;
@@ -231,17 +292,6 @@ class GameMap {
                     ctx.fillRect(centerX - 30, isoBottom - 40, 60, 40);
                     ctx.fillStyle = '#e0e0e0';
                     ctx.fillRect(centerX - 10, isoBottom - 55, 10, 15); // smokestack
-
-                    if (item.bldType.rawReady) {
-                        const time = Date.now() / 300;
-                        const pulse = Math.abs(Math.sin(time));
-                        ctx.fillStyle = `rgba(255, 215, 0, ${0.5 + pulse * 0.5})`;
-                        ctx.beginPath();
-                        ctx.arc(centerX, isoBottom - 60 - pulse * 10, 8, 0, Math.PI * 2);
-                        ctx.fill();
-                        ctx.strokeStyle = '#000';
-                        ctx.stroke();
-                    }
                 } else if (bldType === 'spaceport') {
                     ctx.fillStyle = '#37474f';
                     ctx.beginPath();
@@ -264,5 +314,12 @@ class GameMap {
                 }
             }
         }
-    }
-}
+    }"""
+
+    content = content.replace(search, replace)
+
+    with open(filepath, 'w') as f:
+        f.write(content)
+
+if __name__ == "__main__":
+    main()

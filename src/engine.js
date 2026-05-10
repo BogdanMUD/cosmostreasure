@@ -22,6 +22,23 @@ class Engine {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 
+
+    // Isometric helpers
+    // Assuming TILE_WIDTH = 64, TILE_HEIGHT = 32
+    static isoToScreen(gridX, gridY, tileW = 64, tileH = 32) {
+        return {
+            x: (gridX - gridY) * (tileW / 2),
+            y: (gridX + gridY) * (tileH / 2)
+        };
+    }
+
+    static screenToIso(screenX, screenY, tileW = 64, tileH = 32) {
+        return {
+            x: (screenX / (tileW / 2) + screenY / (tileH / 2)) / 2,
+            y: (screenY / (tileH / 2) - screenX / (tileW / 2)) / 2
+        };
+    }
+
     screenToWorld(screenX, screenY) {
         return {
             x: (screenX - this.canvas.width / 2) / this.camera.zoom + this.camera.x,

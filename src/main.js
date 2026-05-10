@@ -86,7 +86,7 @@ document.getElementById('btn-load').addEventListener('click', loadGame);
 document.getElementById('btn-start-game').addEventListener('click', () => {
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('game-container').classList.remove('hidden');
-
+    engine.start(update, render);
 });
 
 document.getElementById('btn-load-main').addEventListener('click', () => {
@@ -94,7 +94,7 @@ document.getElementById('btn-load-main').addEventListener('click', () => {
         document.getElementById('main-menu').classList.add('hidden');
         document.getElementById('game-container').classList.remove('hidden');
         loadGame();
-
+        engine.start(update, render);
     } else {
         alert("No saved game found!");
     }

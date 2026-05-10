@@ -133,7 +133,7 @@ class NPC extends Entity {
                     this.targetTree = closestTree;
                 }
             }
-
+        }
     }
 
     onReachDestination() {
@@ -149,7 +149,15 @@ class NPC extends Entity {
                 }
             }
             this.targetTree = null;
-
+        } else if (this.profession === 'lumberjack' && this.inventory.wood > 0 && this.mapRef.hasStorage) {
+            const dx = Math.abs(this.x - this.mapRef.storagePos.x);
+            const dy = Math.abs(this.y - this.mapRef.storagePos.y);
+            if (dx <= 1 && dy <= 1) {
+                this.mapRef.storageWood += this.inventory.wood;
+                this.inventory.wood = 0;
+                updateUI();
+            }
+        }
     }
 
     render(ctx) {

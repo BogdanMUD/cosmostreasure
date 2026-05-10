@@ -219,18 +219,20 @@ engine.canvas.addEventListener('mousedown', (e) => {
                     };
                     contextMenu.appendChild(btnBuildSpaceport);
 
-                    const btnPlant = document.createElement('button');
-                    btnPlant.textContent = 'Plant Sapling';
-                    btnPlant.onclick = () => {
-                        hideContextMenu();
-                        leader.actionQueue = { type: 'plant', x: tileX, y: tileY };
-                        leader.learnedSkills.add('plant');
-                        const startX = Math.round(leader.x);
-                        const startY = Math.round(leader.y);
-                        const path = AStar.findPath(gameMap, startX, startY, tileX, tileY);
-                        if (path) leader.setPath(path);
-                    };
-                    contextMenu.appendChild(btnPlant);
+                    if (!gameMap.trees.has(`${tileX},${tileY}`)) {
+                        const btnPlant = document.createElement('button');
+                        btnPlant.textContent = 'Plant Sapling';
+                        btnPlant.onclick = () => {
+                            hideContextMenu();
+                            leader.actionQueue = { type: 'plant', x: tileX, y: tileY };
+                            leader.learnedSkills.add('plant');
+                            const startX = Math.round(leader.x);
+                            const startY = Math.round(leader.y);
+                            const path = AStar.findPath(gameMap, startX, startY, tileX, tileY);
+                            if (path) leader.setPath(path);
+                        };
+                        contextMenu.appendChild(btnPlant);
+                    }
                 }
             } else if (gameMap.buildings.get(`${tileX},${tileY}`) === 'spaceport') {
                 const btnBuildRocket = document.createElement('button');

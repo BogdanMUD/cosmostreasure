@@ -14,7 +14,7 @@ class AStar {
         gScore.set(`${start.x},${start.y}`, 0);
 
         const fScore = new Map();
-        fScore.set(`${start.x},${start.y}`, this.heuristic(start, goal));
+        fScore.set(`${start.x},${start.y}`, this.heuristic(gameMap, start, goal));
 
         while (openSet.length > 0) {
             let current = openSet.reduce((min, node) => {
@@ -39,7 +39,7 @@ class AStar {
                 if (tentativeGScore < (gScore.has(`${neighbor.x},${neighbor.y}`) ? gScore.get(`${neighbor.x},${neighbor.y}`) : Infinity)) {
                     cameFrom.set(`${neighbor.x},${neighbor.y}`, current);
                     gScore.set(`${neighbor.x},${neighbor.y}`, tentativeGScore);
-                    fScore.set(`${neighbor.x},${neighbor.y}`, tentativeGScore + this.heuristic(neighbor, goal));
+                    fScore.set(`${neighbor.x},${neighbor.y}`, tentativeGScore + this.heuristic(gameMap, neighbor, goal));
 
                     if (!openSet.some(n => n.x === neighbor.x && n.y === neighbor.y)) {
                         openSet.push(neighbor);
@@ -51,20 +51,30 @@ class AStar {
         return null;
     }
 
-    static heuristic(a, b) {
-        return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    static heuristic(gameMap, a, b) {
+        // Flat heuristic
+        const flatDist = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+        if (!gameMap || !gameMap.getTileElevation) return flatDist;
+
+        // Add vertical distance to heuristic so they prefer flatter routes if possible
+        const ea = gameMap.getTileElevation(a.x, a.y);
+        const eb = gameMap.getTileElevation(b.x, b.y);
+        return flatDist + Math.abs(ea - eb) * 2;
     }
 
     static getNeighbors(gameMap, node) {
         const neighbors = [];
         const dirs = [
-            { x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }
+            { x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 },
+            // Add diagonal movement for better pathfinding on 3D terrain
+            { x: 1, y: -1 }, { x: 1, y: 1 }, { x: -1, y: 1 }, { x: -1, y: -1 }
         ];
 
         for (const dir of dirs) {
             const nx = node.x + dir.x;
             const ny = node.y + dir.y;
-            if (gameMap.isWalkable(nx, ny)) {
+            // Pass current node x, y to isWalkable to check elevation differences
+            if (gameMap.isWalkable(nx, ny, node.x, node.y)) {
                 neighbors.push({ x: nx, y: ny });
             }
         }

@@ -270,7 +270,8 @@ class NPC extends Entity {
 
     render(ctx) {
         if (this.isSleeping) return; // Don't draw if sleeping in a house
-        const screenPos = Engine.isoToScreen(this.x, this.y, 64, 32);
+        const elev = this.mapRef.getTileElevation(this.x, this.y);
+        const screenPos = Engine.isoToScreen(this.x, this.y, 64, 32, elev);
         ctx.fillStyle = this.profession === 'lumberjack' ? '#f44336' : (this.profession === 'agronomist' ? '#8bc34a' : '#9e9e9e');
         ctx.beginPath();
         // Shift up slightly to stand on the tile
@@ -438,7 +439,8 @@ class Leader extends Entity {
     }
 
     render(ctx) {
-        const screenPos = Engine.isoToScreen(this.x, this.y, 64, 32);
+        const elev = this.mapRef.getTileElevation(this.x, this.y);
+        const screenPos = Engine.isoToScreen(this.x, this.y, 64, 32, elev);
         ctx.fillStyle = '#ff9800'; // Orange leader
         ctx.beginPath();
         ctx.arc(screenPos.x, screenPos.y - 15, 12, 0, Math.PI * 2);

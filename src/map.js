@@ -12,25 +12,102 @@ class GameMap {
     initMap() {
         this.trees = new Map(); // "x,y" => state
         this.buildings = new Map(); // "x,y" => type
+        this.cacti = new Set(); // "x,y"
         this.storageWood = 0;
         this.storageRaw = 0;
         this.maxStorageWood = 30;
         this.hasStorage = false;
         this.roads = new Set();
         this.roadAnimProgress = new Map(); // "x,y" -> progress 0 to 1
+        this.elevations = new Float32Array((this.width + 1) * (this.height + 1));
+
+        const perlinE = new PerlinNoise();
+        const perlinM = new PerlinNoise();
+
+        // Generate vertex elevations
+        for (let y = 0; y <= this.height; y++) {
+            for (let x = 0; x <= this.width; x++) {
+                // Base noise for mountains
+                let e = perlinE.octaveNoise(x, y, 4, 0.5, 0.03);
+                // Shift range to roughly 0-1
+                e = (e + 1) / 2;
+
+                let h = 0;
+                if (e > 0.6) {
+                    // Mountain slope
+                    h = (e - 0.6) * 10;
+                } else {
+                    // Small rolling hills
+                    h = e * 1.5;
+                }
+
+                // Force edges to be water (low elevation)
+                const distToEdgeX = Math.min(x, this.width - x);
+                const distToEdgeY = Math.min(y, this.height - y);
+                const minDist = Math.min(distToEdgeX, distToEdgeY);
+                if (minDist < 5) {
+                    h -= (5 - minDist) * 0.5;
+                }
+
+                // Flatten out negative heights
+                if (h < 0.2) h = 0;
+
+                this.elevations[y * (this.width + 1) + x] = h;
+            }
+        }
+
+        // Generate tiles based on vertex elevation and moisture
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
-                // Simple generation: mostly grass/plains (0), some water (1) at edges
-                let type = 0;
-                if (x < 2 || x > this.width - 3 || y < 2 || y > this.height - 3) {
-                    type = 1; // water
+                const hTl = this.elevations[y * (this.width + 1) + x];
+                const hTr = this.elevations[y * (this.width + 1) + (x + 1)];
+                const hBl = this.elevations[(y + 1) * (this.width + 1) + x];
+                const hBr = this.elevations[(y + 1) * (this.width + 1) + (x + 1)];
+
+                const avgH = (hTl + hTr + hBl + hBr) / 4;
+                const m = (perlinM.octaveNoise(x, y, 3, 0.5, 0.05) + 1) / 2; // Moisture 0-1
+
+                let type = 0; // Grass default
+
+                if (avgH <= 0.1) {
+                    type = 1; // Water
+                } else if (avgH > 2.5) {
+                    type = 4; // Snow peak
+                } else if (avgH > 1.2) {
+                    type = 3; // Stone mountain
                 } else {
-                    // Randomly add trees
-                    if (Math.random() < 0.1) {
-                        this.trees.set(`${x},${y}`, { state: 'grown' });
+                    if (m < 0.4) {
+                        type = 2; // Desert
+                    } else {
+                        type = 0; // Grass
                     }
                 }
+
                 this.tiles.push(type);
+
+                // Spawn objects
+                if (type === 0 && avgH > 0.1) {
+                    // Trees on grass
+                    if (Math.random() < 0.05) {
+                        this.trees.set(`${x},${y}`, { state: 'grown' });
+                    }
+                } else if (type === 2 && avgH > 0.1) {
+                    // Cactus on desert
+                    if (Math.random() < 0.02) {
+                        this.cacti.add(`${x},${y}`);
+                    }
+                }
+            }
+        }
+
+        // Ensure starting area is flat and grass for player to spawn
+        for (let y = 10; y <= 20; y++) {
+            for (let x = 10; x <= 20; x++) {
+                this.elevations[y * (this.width + 1) + x] = 0.2;
+                if (y < this.height && x < this.width) {
+                    this.tiles[y * this.width + x] = 0;
+                    this.cacti.delete(`${x},${y}`);
+                }
             }
         }
     }
@@ -40,11 +117,54 @@ class GameMap {
         return this.tiles[y * this.width + x];
     }
 
-    isWalkable(x, y) {
+    getElevation(x, y) {
+        if (x < 0) x = 0;
+        if (y < 0) y = 0;
+        if (x > this.width) x = this.width;
+        if (y > this.height) y = this.height;
+        return this.elevations[y * (this.width + 1) + x];
+    }
+
+    getTileElevation(x, y) {
+        const tl = this.getElevation(x, y);
+        const tr = this.getElevation(x+1, y);
+        const bl = this.getElevation(x, y+1);
+        const br = this.getElevation(x+1, y+1);
+        return (tl + tr + bl + br) / 4;
+    }
+
+    isWalkable(x, y, fromX = null, fromY = null) {
+        if (x < 0 || x >= this.width || y < 0 || y >= this.height) return false;
         if (this.buildings.has(`${x},${y}`)) return false;
+        if (this.cacti.has(`${x},${y}`)) return false;
         const tree = this.trees.get(`${x},${y}`);
         if (tree && tree.state === 'sapling') return false;
-        return this.getTile(x, y) === 0; // Only grass is walkable for now
+
+        const tileType = this.getTile(x, y);
+        // Water(1), Mountain(3), Snow(4) are non-walkable
+        if (tileType === 1 || tileType === 3 || tileType === 4) return false;
+
+        if (fromX !== null && fromY !== null) {
+            const currentElev = this.getTileElevation(fromX, fromY);
+            const targetElev = this.getTileElevation(x, y);
+            // Can't jump up or down a cliff > 0.5
+            if (Math.abs(currentElev - targetElev) > 0.5) return false;
+        }
+
+        return true;
+    }
+
+    isFlat(x, y, width = 1, height = 1) {
+        let minE = Infinity;
+        let maxE = -Infinity;
+        for (let wy = 0; wy <= height; wy++) {
+            for (let wx = 0; wx <= width; wx++) {
+                const e = this.getElevation(x + wx, y + wy);
+                if (e < minE) minE = e;
+                if (e > maxE) maxE = e;
+            }
+        }
+        return (maxE - minE) <= 0.1;
     }
 
     update(dt) {
@@ -86,71 +206,66 @@ class GameMap {
         }
     }
 
-    render(ctx, entities = []) {
-        // Draw base tiles (grass, water, roads)
+    render(ctx, entities = [], cameraBounds = null) {
         const tileW = 64;
         const tileH = 32;
 
-        for (let y = 0; y < this.height; y++) {
-            for (let x = 0; x < this.width; x++) {
-                const screenPos = Engine.isoToScreen(x, y, tileW, tileH);
+        let startX = 0, startY = 0, endX = this.width, endY = this.height;
 
-                const tile = this.getTile(x, y);
-                if (tile === 0) {
-                    ctx.fillStyle = '#4caf50'; // grass
-                } else if (tile === 1) {
-                    ctx.fillStyle = '#2196f3'; // water
-                }
-
-                if (this.roads.has(`${x},${y}`)) {
-                    ctx.fillStyle = '#9e9e9e'; // road color
-                }
-
-                // Draw rhombus
-                ctx.beginPath();
-                ctx.moveTo(screenPos.x, screenPos.y - tileH / 2); // Top
-                ctx.lineTo(screenPos.x + tileW / 2, screenPos.y); // Right
-                ctx.lineTo(screenPos.x, screenPos.y + tileH / 2); // Bottom
-                ctx.lineTo(screenPos.x - tileW / 2, screenPos.y); // Left
-                ctx.closePath();
-                ctx.fill();
-
-                ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-                ctx.stroke();
-
-                // Draw road animation overlay if needed
-                const roadProg = this.roadAnimProgress.get(`${x},${y}`);
-                if (roadProg !== undefined && roadProg < 1) {
-                    ctx.fillStyle = `rgba(255, 255, 0, ${1 - roadProg})`;
-                    ctx.beginPath();
-                    ctx.moveTo(screenPos.x, screenPos.y - tileH / 2);
-                    ctx.lineTo(screenPos.x + tileW / 2, screenPos.y);
-                    ctx.lineTo(screenPos.x, screenPos.y + tileH / 2);
-                    ctx.lineTo(screenPos.x - tileW / 2, screenPos.y);
-                    ctx.closePath();
-                    ctx.fill();
-                }
-            }
+        if (cameraBounds) {
+            // Add a buffer because mountains can stick up high and cast shadows
+            startX = Math.max(0, Math.floor(cameraBounds.minX) - 10);
+            startY = Math.max(0, Math.floor(cameraBounds.minY) - 10);
+            endX = Math.min(this.width, Math.ceil(cameraBounds.maxX) + 10);
+            // Increase bottom margin buffer significantly for tall mountains
+            endY = Math.min(this.height, Math.ceil(cameraBounds.maxY) + 25);
         }
 
         // Z-Sorting Phase
         const renderables = [];
 
+        // Add tiles as renderables so they depth-sort correctly with tall objects
+        for (let y = startY; y < endY; y++) {
+            for (let x = startX; x < endX; x++) {
+                renderables.push({
+                    type: 'tile',
+                    x, y,
+                    depth: x + y
+                });
+            }
+        }
+
         // Add trees
         for (const [key, tree] of this.trees.entries()) {
             const [x, y] = key.split(',').map(Number);
-            renderables.push({
-                type: 'tree',
-                x, y,
-                depth: x + y,
-                state: tree.state
-            });
+            if (x >= startX && x < endX && y >= startY && y < endY) {
+                renderables.push({
+                    type: 'tree',
+                    x, y,
+                    depth: x + y,
+                    state: tree.state
+                });
+            }
+        }
+
+        // Add cacti
+        for (const key of this.cacti) {
+            const [x, y] = key.split(',').map(Number);
+            if (x >= startX && x < endX && y >= startY && y < endY) {
+                renderables.push({
+                    type: 'cactus',
+                    x, y,
+                    depth: x + y
+                });
+            }
         }
 
         // Add buildings
         for (const [key, bldData] of this.buildings.entries()) {
             if (bldData && bldData.id === key) { // Only add anchor tiles
                 const [x, y] = key.split(',').map(Number);
+                if (x < startX - 5 || x > endX || y < startY - 5 || y > endY) continue; // cull
+
                 const w = bldData.width || 1;
                 const h = bldData.height || 1;
 
@@ -199,9 +314,17 @@ class GameMap {
 
         // Render sorted objects
         for (const item of renderables) {
+            let elev = 0;
+            if (item.type !== 'tile' && item.type !== 'building') {
+                elev = this.getTileElevation(item.x, item.y);
+            }
+            if (item.type === 'building') {
+                elev = this.getTileElevation(item.x + item.w/2, item.y + item.h/2);
+            }
+
             // Draw Shadows
             if (drawShadows) {
-                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH);
+                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH, elev);
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
 
                 if (item.type === 'entity') {
@@ -230,10 +353,73 @@ class GameMap {
                 }
             }
 
-            if (item.type === 'entity') {
+            if (item.type === 'tile') {
+                const hTl = this.getElevation(item.x, item.y);
+                const hTr = this.getElevation(item.x + 1, item.y);
+                const hBl = this.getElevation(item.x, item.y + 1);
+                const hBr = this.getElevation(item.x + 1, item.y + 1);
+
+                const pTl = Engine.isoToScreen(item.x, item.y, tileW, tileH, hTl);
+                // The right corner is gridX+1, gridY
+                const pTr = Engine.isoToScreen(item.x + 1, item.y, tileW, tileH, hTr);
+                // The bottom corner is gridX+1, gridY+1
+                const pBr = Engine.isoToScreen(item.x + 1, item.y + 1, tileW, tileH, hBr);
+                // The left corner is gridX, gridY+1
+                const pBl = Engine.isoToScreen(item.x, item.y + 1, tileW, tileH, hBl);
+
+                const tileType = this.getTile(item.x, item.y);
+                if (tileType === 0) ctx.fillStyle = '#4caf50'; // grass
+                else if (tileType === 1) ctx.fillStyle = '#2196f3'; // water
+                else if (tileType === 2) ctx.fillStyle = '#ffcc80'; // desert
+                else if (tileType === 3) ctx.fillStyle = '#9e9e9e'; // stone
+                else if (tileType === 4) ctx.fillStyle = '#ffffff'; // snow
+
+                if (this.roads.has(`${item.x},${item.y}`)) {
+                    ctx.fillStyle = '#795548'; // dirt road
+                }
+
+                ctx.beginPath();
+                ctx.moveTo(pTl.x, pTl.y); // Top
+                ctx.lineTo(pTr.x, pTr.y); // Right
+                ctx.lineTo(pBr.x, pBr.y); // Bottom
+                ctx.lineTo(pBl.x, pBl.y); // Left
+                ctx.closePath();
+                ctx.fill();
+
+                // If it's a steep cliff, draw a wall/skirt
+                const minH = Math.min(hTl, hTr, hBl, hBr);
+                const maxH = Math.max(hTl, hTr, hBl, hBr);
+                if (maxH - minH > 0.2) {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; // Darken steep slopes slightly
+                    ctx.fill();
+                }
+
+                ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+                ctx.stroke();
+
+                // Draw road animation overlay if needed
+                const roadProg = this.roadAnimProgress.get(`${item.x},${item.y}`);
+                if (roadProg !== undefined && roadProg < 1) {
+                    ctx.fillStyle = `rgba(255, 255, 0, ${1 - roadProg})`;
+                    ctx.beginPath();
+                    ctx.moveTo(pTl.x, pTl.y);
+                    ctx.lineTo(pTr.x, pTr.y);
+                    ctx.lineTo(pBr.x, pBr.y);
+                    ctx.lineTo(pBl.x, pBl.y);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            } else if (item.type === 'entity') {
                 item.entity.render(ctx);
+            } else if (item.type === 'cactus') {
+                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH, elev);
+                ctx.fillStyle = '#8bc34a'; // Light green cactus
+                ctx.fillRect(screenPos.x - 4, screenPos.y - 15, 8, 15);
+                ctx.fillStyle = '#33691e'; // Dark green details
+                ctx.fillRect(screenPos.x - 4, screenPos.y - 10, 3, 5); // left arm
+                ctx.fillRect(screenPos.x + 1, screenPos.y - 12, 3, 5); // right arm
             } else if (item.type === 'tree') {
-                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH);
+                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH, elev);
                 if (item.state === 'grown') {
                     ctx.fillStyle = '#2e7d32'; // dark green for tree
                     ctx.beginPath();
@@ -253,7 +439,7 @@ class GameMap {
                 let bldType = item.bldType;
                 if (typeof bldType === 'object') bldType = bldType.type;
 
-                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH);
+                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH, elev);
                 const endScreenPos = Engine.isoToScreen(item.x + item.w - 1, item.y + item.h - 1, tileW, tileH);
                 const centerX = (screenPos.x + endScreenPos.x) / 2;
                 const centerY = (screenPos.y + endScreenPos.y) / 2;

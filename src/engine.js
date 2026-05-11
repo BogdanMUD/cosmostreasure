@@ -25,10 +25,10 @@ class Engine {
 
     // Isometric helpers
     // Assuming TILE_WIDTH = 64, TILE_HEIGHT = 32
-    static isoToScreen(gridX, gridY, tileW = 64, tileH = 32) {
+    static isoToScreen(gridX, gridY, tileW = 64, tileH = 32, z = 0) {
         return {
             x: (gridX - gridY) * (tileW / 2),
-            y: (gridX + gridY) * (tileH / 2)
+            y: (gridX + gridY) * (tileH / 2) - z * tileH * 2
         };
     }
 

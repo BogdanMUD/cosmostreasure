@@ -1,7 +1,7 @@
 // main.js
 
 const engine = new Engine();
-const gameMap = new GameMap(30, 30);
+const gameMap = new GameMap(150, 100);
 const leader = new Leader(15, 15, gameMap);
 const npcs = [];
 
@@ -14,11 +14,25 @@ let menuTarget = null; // Stores {x, y} of the tile clicked
 
 function getGridFromEvent(e) {
     const worldPos = engine.screenToWorld(e.clientX, e.clientY);
-    const isoPos = Engine.screenToIso(worldPos.x, worldPos.y, 64, 32);
-    return {
-        x: Math.round(isoPos.x),
-        y: Math.round(isoPos.y)
-    };
+
+    // First pass: assume z=0
+    let isoPos = Engine.screenToIso(worldPos.x, worldPos.y, 64, 32);
+    let gx = Math.round(isoPos.x);
+    let gy = Math.round(isoPos.y);
+
+    // Iterative refinement to handle height
+    for (let i = 0; i < 3; i++) {
+        const elev = gameMap.getTileElevation(gx, gy);
+        // We know isoToScreen subtracts elev * 64 from Y.
+        // So we add it back to world Y to find the "flat" coordinate that would have resulted in this click.
+        const adjustedWorldY = worldPos.y + elev * 64;
+
+        isoPos = Engine.screenToIso(worldPos.x, adjustedWorldY, 64, 32);
+        gx = Math.round(isoPos.x);
+        gy = Math.round(isoPos.y);
+    }
+
+    return { x: gx, y: gy };
 }
 
 
@@ -28,6 +42,32 @@ function hideContextMenu() {
 }
 
 function saveGame() {
+    const data = {
+        leader: {
+            x: leader.x, y: leader.y,
+            inventory: leader.inventory,
+            learnedSkills: Array.from(leader.learnedSkills)
+        },
+        map: {
+            storageWood: gameMap.storageWood,
+            storageRaw: gameMap.storageRaw,
+            hasStorage: gameMap.hasStorage,
+            buildings: Array.from(gameMap.buildings.entries()),
+            trees: Array.from(gameMap.trees.entries()),
+            cacti: Array.from(gameMap.cacti),
+            roads: Array.from(gameMap.roads),
+            tiles: gameMap.tiles,
+            elevations: Array.from(gameMap.elevations)
+        },
+        npcs: npcs.map(n => ({
+            x: n.x, y: n.y, profession: n.profession, inventory: n.inventory, state: n.state, homePos: n.homePos, isSleeping: n.isSleeping
+        })),
+        gameTime: gameTime
+    };
+    localStorage.setItem('spaceFarmSave', JSON.stringify(data));
+}
+
+function old_saveGame() {
     const data = {
         leader: {
             x: leader.x, y: leader.y,
@@ -57,6 +97,56 @@ function saveGame() {
 }
 
 function loadGame() {
+    const saved = localStorage.getItem('spaceFarmSave');
+    if (!saved) {
+        document.getElementById('save-status').innerText = 'No save found';
+        return;
+    }
+    try {
+        const data = JSON.parse(saved);
+        leader.x = data.leader.x;
+        leader.y = data.leader.y;
+        leader.targetX = data.leader.x;
+        leader.targetY = data.leader.y;
+        leader.path = [];
+        leader.inventory = data.leader.inventory || { wood: 0, raw: 0 };
+        leader.learnedSkills = new Set(data.leader.learnedSkills || ['chop']);
+
+        gameMap.storageWood = data.map.storageWood;
+        gameMap.storageRaw = data.map.storageRaw || 0;
+        gameMap.hasStorage = data.map.hasStorage;
+        gameMap.buildings = new Map(data.map.buildings);
+        gameMap.trees = new Map(data.map.trees);
+        gameMap.cacti = new Set(data.map.cacti || []);
+        gameMap.roads = new Set(data.map.roads || []);
+
+        if (data.map.tiles) gameMap.tiles = data.map.tiles;
+        if (data.map.elevations) gameMap.elevations = new Float32Array(data.map.elevations);
+        if (data.gameTime !== undefined) gameTime = data.gameTime;
+
+        npcs.length = 0; // clear
+        for (const n of data.npcs) {
+            const npc = new NPC(n.x, n.y, gameMap, n.profession, n.homePos);
+            npc.inventory = n.inventory || { wood: 0, raw: 0 };
+            npc.state = n.state || 'idle';
+            npc.isSleeping = n.isSleeping || false;
+            npcs.push(npc);
+        }
+
+        // Restore camera
+        const targetScreenBase = Engine.isoToScreen(leader.x, leader.y, 64, 32, gameMap.getTileElevation(leader.x, leader.y));
+        engine.camera.x = targetScreenBase.x;
+        engine.camera.y = targetScreenBase.y;
+
+        updateUI();
+        document.getElementById('save-status').innerText = 'Game Loaded!';
+        setTimeout(() => { document.getElementById('save-status').innerText = ''; }, 2000);
+    } catch(e) {
+        console.error("Save corrupted", e);
+    }
+}
+
+function old_loadGame() {
     const saved = localStorage.getItem('spaceFarmSave');
     if (saved) {
         try {
@@ -557,15 +647,36 @@ function updateClockUI() {
 }
 
 function render(ctx) {
+    // Calculate visible grid bounds based on camera position and zoom
+    // We sample the 4 corners of the screen to find the min/max X and Y in isometric space.
+    // We add a large buffer because tall mountains might stick into the screen from below.
+    const wTl = engine.screenToWorld(0, 0);
+    const wTr = engine.screenToWorld(engine.canvas.width, 0);
+    const wBl = engine.screenToWorld(0, engine.canvas.height);
+    const wBr = engine.screenToWorld(engine.canvas.width, engine.canvas.height);
+
+    // Convert to flat grid coords to find bounds
+    const tl = Engine.screenToIso(wTl.x, wTl.y, 64, 32);
+    const tr = Engine.screenToIso(wTr.x, wTr.y, 64, 32);
+    const bl = Engine.screenToIso(wBl.x, wBl.y, 64, 32);
+    const br = Engine.screenToIso(wBr.x, wBr.y, 64, 32);
+
+    const minX = Math.min(tl.x, tr.x, bl.x, br.x);
+    const maxX = Math.max(tl.x, tr.x, bl.x, br.x);
+    const minY = Math.min(tl.y, tr.y, bl.y, br.y);
+    const maxY = Math.max(tl.y, tr.y, bl.y, br.y);
+
+    const cameraBounds = { minX, maxX, minY, maxY };
+
     // Pass entities to map so it can z-sort them with buildings/trees
-    gameMap.render(ctx, [leader, ...npcs]);
+    gameMap.render(ctx, [leader, ...npcs], cameraBounds);
 
     // Render ghost building
     if (currentBuildMode) {
         let canBuild = true;
         for(let wy=0; wy < currentBuildMode.height; wy++) {
             for(let wx=0; wx < currentBuildMode.width; wx++) {
-                if(!gameMap.isWalkable(mouseTileX + wx, mouseTileY + wy)) {
+                if(!gameMap.isWalkable(mouseTileX + wx, mouseTileY + wy) || !gameMap.isFlat(mouseTileX, mouseTileY, currentBuildMode.width, currentBuildMode.height)) {
                     canBuild = false;
                 }
             }
@@ -580,7 +691,9 @@ function render(ctx) {
 
         for(let wy=0; wy < currentBuildMode.height; wy++) {
             for(let wx=0; wx < currentBuildMode.width; wx++) {
-                const screenPos = Engine.isoToScreen(mouseTileX + wx, mouseTileY + wy, tileW, tileH);
+                // Must be flat to build, but we should show ghost at current tile elev
+                const elev = gameMap.getTileElevation(mouseTileX + wx, mouseTileY + wy);
+                const screenPos = Engine.isoToScreen(mouseTileX + wx, mouseTileY + wy, tileW, tileH, elev);
 
                 ctx.beginPath();
                 ctx.moveTo(screenPos.x, screenPos.y - tileH / 2);

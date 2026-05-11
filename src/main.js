@@ -551,7 +551,7 @@ engine.canvas.addEventListener('wheel', (e) => {
         engine.camera.zoom -= zoomAmount;
     }
     // Clamp zoom
-    engine.camera.zoom = Math.max(0.3, Math.min(engine.camera.zoom, 3.0));
+    engine.camera.zoom = Math.max(0.6, Math.min(engine.camera.zoom, 3.0));
 }, { passive: false });
 
 // Time and Weather System
@@ -574,6 +574,7 @@ for(let i=0; i<100; i++) {
 }
 
 function update(dt) {
+    engine.camera.zoom = Math.max(0.6, Math.min(engine.camera.zoom, 3.0));
     // 24 hours per 360 seconds -> dt seconds * (24 / 360) hours per real second
     gameTime += dt * (24.0 / 360.0);
     if (gameTime >= 24) gameTime -= 24;

@@ -54,13 +54,28 @@ class Engine {
     }
 
     start(updateFn, renderFn) {
-        const loop = (timestamp) => {
-            const dt = (timestamp - this.lastTime) / 1000; // in seconds
-            this.lastTime = timestamp;
+        // Run physics/logic update independently of rendering using setInterval
+        // Target 60 FPS (approx 16.6ms)
+        const updateInterval = 1000 / 60;
+        let lastLogicTime = performance.now();
 
-            if (dt < 0.1) { // cap dt to prevent huge jumps if tab was inactive
-                updateFn(dt);
+        setInterval(() => {
+            const now = performance.now();
+            const dt = (now - lastLogicTime) / 1000;
+            lastLogicTime = now;
+
+            // Allow up to 1 second of catch-up if the tab was suspended,
+            let timeAccumulator = Math.min(dt, 1.0); // max 1 second simulation catch-up
+
+            while (timeAccumulator > 0) {
+                const tickDt = Math.min(timeAccumulator, 0.05); // max 50ms per physics tick
+                updateFn(tickDt);
+                timeAccumulator -= tickDt;
             }
+        }, updateInterval);
+
+        // Rendering loop bound to screen refresh rate
+        const renderLoop = () => {
             this.clear();
 
             this.ctx.save();
@@ -72,8 +87,8 @@ class Engine {
 
             this.ctx.restore();
 
-            requestAnimationFrame(loop);
+            requestAnimationFrame(renderLoop);
         };
-        requestAnimationFrame(loop);
+        requestAnimationFrame(renderLoop);
     }
 }

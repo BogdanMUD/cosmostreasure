@@ -396,6 +396,8 @@ engine.canvas.addEventListener('mousedown', (e) => {
                 currentBuildMode = null;
                 buildButtons.forEach(b => b.classList.remove('active'));
                 cancelBuildBtn.classList.add('hidden');
+                const rotHint = document.getElementById('rotation-hint');
+                if (rotHint) rotHint.classList.add('hidden');
             }
             return;
         } else {
@@ -865,6 +867,9 @@ buildButtons.forEach(btn => {
 
         currentBuildMode = { type, cost, width, height };
         cancelBuildBtn.classList.remove('hidden');
+
+        const rotHint = document.getElementById('rotation-hint');
+        if (rotHint) rotHint.classList.remove('hidden');
     });
 });
 
@@ -872,6 +877,8 @@ cancelBuildBtn.addEventListener('click', () => {
     currentBuildMode = null;
     buildButtons.forEach(b => b.classList.remove('active'));
     cancelBuildBtn.classList.add('hidden');
+    const rotHint = document.getElementById('rotation-hint');
+    if (rotHint) rotHint.classList.add('hidden');
 });
 
 function generateRoads(startX, startY) {

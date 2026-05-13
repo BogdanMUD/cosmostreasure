@@ -195,11 +195,15 @@ class GameMap {
                         bld = bldData.type;
                     }
 
-                    bld.timer += dt;
-                    if (bld.timer >= 10) { // Generates raw material every 10 seconds
-                        bld.timer = 0;
-                        bldData.rawReady = true; // Flag for UI harvest
-                        if (typeof updateUI === 'function') updateUI();
+                    // Disable factory at night
+                    const isNight = typeof gameTime !== 'undefined' && (gameTime < 7 || gameTime >= 19);
+                    if (!isNight) {
+                        bld.timer += dt;
+                        if (bld.timer >= 10) { // Generates raw material every 10 seconds
+                            bld.timer = 0;
+                            bld.rawReady = true; // Flag for UI harvest
+                            if (typeof updateUI === 'function') updateUI();
+                        }
                     }
                 }
             }
@@ -354,20 +358,12 @@ class GameMap {
             }
 
             if (item.type === 'tile') {
-                const hTl = this.getElevation(item.x, item.y);
-                const hTr = this.getElevation(item.x + 1, item.y);
-                const hBl = this.getElevation(item.x, item.y + 1);
-                const hBr = this.getElevation(item.x + 1, item.y + 1);
-
-                const pTl = Engine.isoToScreen(item.x, item.y, tileW, tileH, hTl);
-                // The right corner is gridX+1, gridY
-                const pTr = Engine.isoToScreen(item.x + 1, item.y, tileW, tileH, hTr);
-                // The bottom corner is gridX+1, gridY+1
-                const pBr = Engine.isoToScreen(item.x + 1, item.y + 1, tileW, tileH, hBr);
-                // The left corner is gridX, gridY+1
-                const pBl = Engine.isoToScreen(item.x, item.y + 1, tileW, tileH, hBl);
-
                 const tileType = this.getTile(item.x, item.y);
+                if (tileType === -1) continue; // Don't draw void
+
+                // isoToScreen now returns the exact center of the tile
+                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH);
+
                 if (tileType === 0) ctx.fillStyle = '#4caf50'; // grass
                 else if (tileType === 1) ctx.fillStyle = '#2196f3'; // water
                 else if (tileType === 2) ctx.fillStyle = '#ffcc80'; // desert
@@ -379,20 +375,12 @@ class GameMap {
                 }
 
                 ctx.beginPath();
-                ctx.moveTo(pTl.x, pTl.y); // Top
-                ctx.lineTo(pTr.x, pTr.y); // Right
-                ctx.lineTo(pBr.x, pBr.y); // Bottom
-                ctx.lineTo(pBl.x, pBl.y); // Left
+                ctx.moveTo(screenPos.x, screenPos.y - tileH / 2); // Top tip
+                ctx.lineTo(screenPos.x + tileW / 2, screenPos.y); // Right tip
+                ctx.lineTo(screenPos.x, screenPos.y + tileH / 2); // Bottom tip
+                ctx.lineTo(screenPos.x - tileW / 2, screenPos.y); // Left tip
                 ctx.closePath();
                 ctx.fill();
-
-                // If it's a steep cliff, draw a wall/skirt
-                const minH = Math.min(hTl, hTr, hBl, hBr);
-                const maxH = Math.max(hTl, hTr, hBl, hBr);
-                if (maxH - minH > 0.2) {
-                    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; // Darken steep slopes slightly
-                    ctx.fill();
-                }
 
                 ctx.strokeStyle = 'rgba(0,0,0,0.1)';
                 ctx.stroke();
@@ -402,10 +390,10 @@ class GameMap {
                 if (roadProg !== undefined && roadProg < 1) {
                     ctx.fillStyle = `rgba(255, 255, 0, ${1 - roadProg})`;
                     ctx.beginPath();
-                    ctx.moveTo(pTl.x, pTl.y);
-                    ctx.lineTo(pTr.x, pTr.y);
-                    ctx.lineTo(pBr.x, pBr.y);
-                    ctx.lineTo(pBl.x, pBl.y);
+                    ctx.moveTo(screenPos.x, screenPos.y - tileH / 2); // Top tip
+                    ctx.lineTo(screenPos.x + tileW / 2, screenPos.y); // Right tip
+                    ctx.lineTo(screenPos.x, screenPos.y + tileH / 2); // Bottom tip
+                    ctx.lineTo(screenPos.x - tileW / 2, screenPos.y); // Left tip
                     ctx.closePath();
                     ctx.fill();
                 }
@@ -488,7 +476,21 @@ class GameMap {
                     ctx.fillStyle = '#e0e0e0';
                     ctx.fillRect(centerX - 10, isoBottom - 55, 10, 15); // smokestack
 
-                    if (item.bldType.rawReady) {
+                    const isNight = typeof gameTime !== 'undefined' && (gameTime < 7 || gameTime >= 19);
+                    if (isNight) {
+                        const time = Date.now() / 500;
+                        const pulse = Math.abs(Math.sin(time));
+                        ctx.fillStyle = `rgba(150, 150, 150, ${0.5 + pulse * 0.5})`;
+                        ctx.beginPath();
+                        ctx.arc(centerX, isoBottom - 60 - pulse * 5, 10, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.strokeStyle = '#000';
+                        ctx.stroke();
+                        ctx.fillStyle = '#fff';
+                        ctx.font = '12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('⏳', centerX, isoBottom - 56 - pulse * 5);
+                    } else if (item.bldType && item.bldType.rawReady) {
                         const time = Date.now() / 300;
                         const pulse = Math.abs(Math.sin(time));
                         ctx.fillStyle = `rgba(255, 215, 0, ${0.5 + pulse * 0.5})`;

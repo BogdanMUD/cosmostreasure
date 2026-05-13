@@ -26,16 +26,22 @@ class Engine {
     // Isometric helpers
     // Assuming TILE_WIDTH = 64, TILE_HEIGHT = 32
     static isoToScreen(gridX, gridY, tileW = 64, tileH = 32, z = 0) {
+        // Shift by 0.5 so that integer coordinates point to the center of the tile
+        const cx = gridX + 0.5;
+        const cy = gridY + 0.5;
         return {
-            x: (gridX - gridY) * (tileW / 2),
-            y: (gridX + gridY) * (tileH / 2) - z * tileH * 2
+            x: (cx - cy) * (tileW / 2),
+            y: (cx + cy) * (tileH / 2) - z * tileH * 2
         };
     }
 
     static screenToIso(screenX, screenY, tileW = 64, tileH = 32) {
+        const cx = (screenX / (tileW / 2) + screenY / (tileH / 2)) / 2;
+        const cy = (screenY / (tileH / 2) - screenX / (tileW / 2)) / 2;
+        // Shift back
         return {
-            x: (screenX / (tileW / 2) + screenY / (tileH / 2)) / 2,
-            y: (screenY / (tileH / 2) - screenX / (tileW / 2)) / 2
+            x: cx - 0.5,
+            y: cy - 0.5
         };
     }
 

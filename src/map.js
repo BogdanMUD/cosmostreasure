@@ -19,94 +19,59 @@ class GameMap {
         this.hasStorage = false;
         this.roads = new Set();
         this.roadAnimProgress = new Map(); // "x,y" -> progress 0 to 1
-        this.elevations = new Float32Array((this.width + 1) * (this.height + 1));
 
         const perlinE = new PerlinNoise();
         const perlinM = new PerlinNoise();
 
-        // Generate vertex elevations
-        for (let y = 0; y <= this.height; y++) {
-            for (let x = 0; x <= this.width; x++) {
-                // Base noise for mountains
-                let e = perlinE.octaveNoise(x, y, 4, 0.5, 0.03);
-                // Shift range to roughly 0-1
-                e = (e + 1) / 2;
+        const centerX = this.width / 2;
+        const centerY = this.height / 2;
+        const radius = Math.min(this.width, this.height) / 2 - 2; // Leave a small border
 
-                let h = 0;
-                if (e > 0.6) {
-                    // Mountain slope
-                    h = (e - 0.6) * 10;
-                } else {
-                    // Small rolling hills
-                    h = e * 1.5;
-                }
-
-                // Force edges to be water (low elevation)
-                const distToEdgeX = Math.min(x, this.width - x);
-                const distToEdgeY = Math.min(y, this.height - y);
-                const minDist = Math.min(distToEdgeX, distToEdgeY);
-                if (minDist < 5) {
-                    h -= (5 - minDist) * 0.5;
-                }
-
-                // Flatten out negative heights
-                if (h < 0.2) h = 0;
-
-                this.elevations[y * (this.width + 1) + x] = h;
-            }
-        }
-
-        // Generate tiles based on vertex elevation and moisture
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
-                const hTl = this.elevations[y * (this.width + 1) + x];
-                const hTr = this.elevations[y * (this.width + 1) + (x + 1)];
-                const hBl = this.elevations[(y + 1) * (this.width + 1) + x];
-                const hBr = this.elevations[(y + 1) * (this.width + 1) + (x + 1)];
+                // Check if inside circle
+                const dx = x - centerX;
+                const dy = y - centerY;
+                const dist = Math.sqrt(dx*dx + dy*dy);
 
-                const avgH = (hTl + hTr + hBl + hBr) / 4;
-                const m = (perlinM.octaveNoise(x, y, 3, 0.5, 0.05) + 1) / 2; // Moisture 0-1
+                if (dist > radius) {
+                    this.tiles.push(-1); // Empty void outside circle
+                    continue;
+                }
 
-                let type = 0; // Grass default
+                // Generate biomes with distinct borders
+                // Scale noise to make big chunks
+                const e = perlinE.octaveNoise(x, y, 2, 0.5, 0.02); // Elevation/Temperature
+                const m = perlinM.octaveNoise(x + 100, y + 100, 2, 0.5, 0.02); // Moisture
 
-                if (avgH <= 0.1) {
-                    type = 1; // Water
-                } else if (avgH > 2.5) {
-                    type = 4; // Snow peak
-                } else if (avgH > 1.2) {
-                    type = 3; // Stone mountain
+                // e and m are roughly -1 to 1
+                let type = 0; // grass
+
+                // Very sharp thresholds for distinct biomes
+                if (e > 0.3) {
+                    // High mountains
+                    if (e > 0.6) type = 4; // snow
+                    else type = 3; // stone
+                } else if (e < -0.3) {
+                    type = 1; // water
                 } else {
-                    if (m < 0.4) {
-                        type = 2; // Desert
-                    } else {
-                        type = 0; // Grass
-                    }
+                    // Mid elevation
+                    if (m > 0.2) type = 0; // grass
+                    else type = 2; // desert
+                }
+
+                // Force spawn area to be grass
+                if (x >= 10 && x <= 20 && y >= 10 && y <= 20) {
+                    type = 0;
                 }
 
                 this.tiles.push(type);
 
-                // Spawn objects
-                if (type === 0 && avgH > 0.1) {
-                    // Trees on grass
-                    if (Math.random() < 0.05) {
-                        this.trees.set(`${x},${y}`, { state: 'grown' });
-                    }
-                } else if (type === 2 && avgH > 0.1) {
-                    // Cactus on desert
-                    if (Math.random() < 0.02) {
-                        this.cacti.add(`${x},${y}`);
-                    }
-                }
-            }
-        }
-
-        // Ensure starting area is flat and grass for player to spawn
-        for (let y = 10; y <= 20; y++) {
-            for (let x = 10; x <= 20; x++) {
-                this.elevations[y * (this.width + 1) + x] = 0.2;
-                if (y < this.height && x < this.width) {
-                    this.tiles[y * this.width + x] = 0;
-                    this.cacti.delete(`${x},${y}`);
+                // Add objects
+                if (type === 0 && Math.random() < 0.05 && dist < radius - 2) {
+                    this.trees.set(`${x},${y}`, { state: 'grown' });
+                } else if (type === 2 && Math.random() < 0.02 && dist < radius - 2) {
+                    this.cacti.add(`${x},${y}`);
                 }
             }
         }
@@ -117,23 +82,7 @@ class GameMap {
         return this.tiles[y * this.width + x];
     }
 
-    getElevation(x, y) {
-        if (x < 0) x = 0;
-        if (y < 0) y = 0;
-        if (x > this.width) x = this.width;
-        if (y > this.height) y = this.height;
-        return this.elevations[y * (this.width + 1) + x];
-    }
-
-    getTileElevation(x, y) {
-        const tl = this.getElevation(x, y);
-        const tr = this.getElevation(x+1, y);
-        const bl = this.getElevation(x, y+1);
-        const br = this.getElevation(x+1, y+1);
-        return (tl + tr + bl + br) / 4;
-    }
-
-    isWalkable(x, y, fromX = null, fromY = null) {
+    isWalkable(x, y) {
         if (x < 0 || x >= this.width || y < 0 || y >= this.height) return false;
         if (this.buildings.has(`${x},${y}`)) return false;
         if (this.cacti.has(`${x},${y}`)) return false;
@@ -142,29 +91,18 @@ class GameMap {
 
         const tileType = this.getTile(x, y);
         // Water(1), Mountain(3), Snow(4) are non-walkable
-        if (tileType === 1 || tileType === 3 || tileType === 4) return false;
-
-        if (fromX !== null && fromY !== null) {
-            const currentElev = this.getTileElevation(fromX, fromY);
-            const targetElev = this.getTileElevation(x, y);
-            // Can't jump up or down a cliff > 0.5
-            if (Math.abs(currentElev - targetElev) > 0.5) return false;
-        }
+        if (tileType === 1 || tileType === 3 || tileType === 4 || tileType === -1) return false;
 
         return true;
     }
 
     isFlat(x, y, width = 1, height = 1) {
-        let minE = Infinity;
-        let maxE = -Infinity;
-        for (let wy = 0; wy <= height; wy++) {
-            for (let wx = 0; wx <= width; wx++) {
-                const e = this.getElevation(x + wx, y + wy);
-                if (e < minE) minE = e;
-                if (e > maxE) maxE = e;
+        for (let wy = 0; wy < height; wy++) {
+            for (let wx = 0; wx < width; wx++) {
+                if (this.getTile(x + wx, y + wy) === -1) return false;
             }
         }
-        return (maxE - minE) <= 0.1;
+        return true;
     }
 
     update(dt) {
@@ -318,22 +256,15 @@ class GameMap {
 
         // Render sorted objects
         for (const item of renderables) {
-            let elev = 0;
-            if (item.type !== 'tile' && item.type !== 'building') {
-                elev = this.getTileElevation(item.x, item.y);
-            }
-            if (item.type === 'building') {
-                elev = this.getTileElevation(item.x + item.w/2, item.y + item.h/2);
-            }
+            let elev = 0; // Flat
 
             // Draw Shadows
             if (drawShadows) {
-                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH, elev);
+                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH);
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
 
                 if (item.type === 'entity') {
                     ctx.beginPath();
-                    // Elipse skewed by shadow angle
                     ctx.ellipse(screenPos.x + shadowAngleX * 0.5, screenPos.y, 8, 4 * shadowLength, 0, 0, Math.PI * 2);
                     ctx.fill();
                 } else if (item.type === 'tree') {
@@ -407,14 +338,27 @@ class GameMap {
                 ctx.fillRect(screenPos.x - 4, screenPos.y - 10, 3, 5); // left arm
                 ctx.fillRect(screenPos.x + 1, screenPos.y - 12, 3, 5); // right arm
             } else if (item.type === 'tree') {
-                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH, elev);
+                const screenPos = Engine.isoToScreen(item.x, item.y, tileW, tileH);
+
+                // Occlusion check
+                let isOccluding = false;
+                for (let e of entities) {
+                    if (Math.round(e.x) === item.x && Math.round(e.y) === item.y) {
+                        isOccluding = true;
+                        break;
+                    }
+                }
+                if (isOccluding) ctx.globalAlpha = 0.5;
+
                 if (item.state === 'grown') {
-                    ctx.fillStyle = '#2e7d32'; // dark green for tree
-                    ctx.beginPath();
-                    ctx.arc(screenPos.x, screenPos.y - 10, 12, 0, Math.PI * 2);
-                    ctx.fill();
+                    // Tree trunk
                     ctx.fillStyle = '#5d4037';
-                    ctx.fillRect(screenPos.x - 2, screenPos.y - 10, 4, 10);
+                    ctx.fillRect(screenPos.x - 3, screenPos.y - 20, 6, 20);
+                    // Tree leaves (2x taller than player)
+                    ctx.fillStyle = '#2e7d32'; // dark green
+                    ctx.beginPath();
+                    ctx.arc(screenPos.x, screenPos.y - 30, 20, 0, Math.PI * 2);
+                    ctx.fill();
                 } else if (item.state === 'sapling') {
                     ctx.fillStyle = '#8bc34a'; // light green for sapling
                     ctx.beginPath();
@@ -423,6 +367,7 @@ class GameMap {
                     ctx.fillStyle = '#5d4037';
                     ctx.fillRect(screenPos.x - 1, screenPos.y - 5, 2, 5);
                 }
+                ctx.globalAlpha = 1.0; // Reset
             } else if (item.type === 'building') {
                 let bldType = item.bldType;
                 if (typeof bldType === 'object') bldType = bldType.type;
